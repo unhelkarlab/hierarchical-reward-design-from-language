@@ -1,0 +1,6 @@
+env:
+  env_name: kitchen_flatsaGPT
+  env_type: oc
+  level: flatsa
+  numEnvs: 1
+name: KitchenFlatSAGPT

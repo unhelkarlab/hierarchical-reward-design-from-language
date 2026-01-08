@@ -1,0 +1,6 @@
+name: ThorPickPlaceEnvHL
+
+env:
+  numEnvs: 1
+  env_type: pnp
+  level: high

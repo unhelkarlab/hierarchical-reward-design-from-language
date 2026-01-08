@@ -1,0 +1,14 @@
+wo_DABC_none_prog:
+  priority: [["David Soup", "Alice Soup", "Bob Soup", "Cathy Soup"]]
+  eval_env_seed_start: -1
+  eval_env_seed_end:
+  num_soup_orders: 3
+  game_map: ring
+
+  hl_mode: prompt
+  prompt_style: prog
+  num_demos: 0
+  text_desc: False
+  q_eval: False
+  top_k_llm: -1
+  model: gpt4o

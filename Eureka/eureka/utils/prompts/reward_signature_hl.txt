@@ -1,0 +1,8 @@
+def get_high_level_pref_gpt(state: Dict, prev_option: int, option: int) -> Tuple[float, Dict[str, float]]:
+  '''
+  state: the current state of the environment.
+  prev_option: the last option (subtask) executed by the agent to reach the current state.
+  option: the option (subtask)) the agent is about to perform in the current state.
+  '''
+  ...
+  return reward, reward_components

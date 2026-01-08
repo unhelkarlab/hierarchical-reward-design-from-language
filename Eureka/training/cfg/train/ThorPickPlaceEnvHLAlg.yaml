@@ -1,0 +1,4 @@
+params:
+  config:
+    name: ThorPickPlaceEnvHL
+    model_type: VariableStepDQN

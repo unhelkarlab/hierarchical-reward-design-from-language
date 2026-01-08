@@ -1,0 +1,6 @@
+env:
+  env_name: kitchen_hlGPT
+  env_type: oc
+  level: high
+  numEnvs: 1
+name: KitchenHLGPT

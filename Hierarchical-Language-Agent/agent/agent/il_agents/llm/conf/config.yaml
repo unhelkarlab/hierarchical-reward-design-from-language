@@ -1,0 +1,14 @@
+# Legacy hyperparameters
+operation: cond
+fast_il: False
+gen_mode: 5_unranked
+interpolation: False
+
+ll_mode: ""
+filter_actions: True
+prev_skill: True
+no_hl_rec: True
+
+defaults:
+  - _self_
+  - B_C/w_B_C_none_lang.yaml

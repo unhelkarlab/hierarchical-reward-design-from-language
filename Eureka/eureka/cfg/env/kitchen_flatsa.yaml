@@ -1,0 +1,31 @@
+task: KitchenFlatSA
+env_name: kitchen_flatsa
+short_name: oc_flatsa
+level: flatsa
+timesteps: 3_000_000
+description: |
+  Task description: 
+  The task objective is to prepare one David's salad with three ingredients: onion, lettuce, and tomatoes. 
+  To make this salad, the agent needs to:
+    a. Chop ingredients (onion, lettuce, and tomatoes). 
+       Only one ingredient of each type is needed to complete the salad. 
+    b. Combined chopped ingredients. 
+    c. Plate the salad.
+  The task reward already encodes the task objective.
+  In the task rewrd, the agent receives a reward of +1 when it completes a salad, and a step cost of -0.01 for each time step taken.
+  The reward function you write does not need to encode the task objective.  
+
+  Relevant task spaces:
+  The agent's action (low-level action) space consists of moving in the four cardinal directions (up, down, left, right) and idle.
+  When an agent is standing next to a counter, performing an action in the direction of the counter interacts with the counter.
+  
+  User preference:
+  The agent should chop an onion after it chops a tomato, and the agent should chop a lettuce after it chops an onion.
+  If the ingredients are already chopped or a combined salad already exists, the agent should not chop more ingredients.
+  The mixing order of the ingredients does not matter.
+
+  Additional info: 
+  You need to write a reward function to encode this user preference.
+  The preference function you write will be used together with the task reward to train the agent.
+  Please make sure NOT to make the reward function stateful (i.e. you should not use function attributes or global variables.)
+  You should also not write any other helper functions.

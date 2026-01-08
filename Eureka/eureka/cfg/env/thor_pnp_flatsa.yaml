@@ -1,0 +1,33 @@
+task: ThorPickPlaceEnvFlatSA
+env_name: thor_pnp_flatsa
+short_name: thor_pnp_flatsa
+level: flatsa
+timesteps: 1_500_000
+description: |
+  Task description: 
+  The task objective is to pick up all apples and eggs on the dining table and place them in the sink.
+  In the task reward, the agent gets a reward of +10 after it successfully picks up an object and places it in the sink,
+  and a step cost of -0.1 for each time step taken.
+  The reward function you write does not need to encode the task objective. 
+
+  Relevant task spaces:
+  The agent's action (referred to as self.pnp_ll_actions in the code) space consists of the primitives for:
+  moving forward, rotating left, rotating right, picking up the closest object, and placing a held object in receptacle.
+  The agent can only perform the low level pick or place primitive only if the agent is close enough to an object or a receptacle.
+
+  User preference:
+  The agent should avoid the stool in the environment both when it is on its way to pick up an egg and place an egg down.
+  More specifically, the agent should be penalized when it is within 1.5 meters of the stool.
+  However, the agent does not need to avoid the stool when it is on its way to pick up an apple or place an apple down.
+
+  In addition, the agent should pick up an object type that's different from the previously placed object type, 
+  as long as there are objects of the other type on the table need to be picked.
+
+  Additional info: 
+  You need to write a reward function to encode this user preference.
+  The preference function you write will be used together with the task reward to train the agent.
+  It can take up to 30 steps to reach an object and pick it up, or to reach the sink and drop it off.
+  Make sure your reward scaling gives the preference for alternating objects much more weight than the negative step rewards, 
+  but still lower than the positive task reward.
+  Please make sure NOT to make the reward function stateful (i.e. you should not use function attributes or global variables.)
+  You should also not write any other helper functions.

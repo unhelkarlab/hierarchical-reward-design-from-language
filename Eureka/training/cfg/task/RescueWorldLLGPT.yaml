@@ -1,0 +1,6 @@
+env:
+  env_name: rescue_world_llGPT
+  env_type: rw4t
+  level: low
+  numEnvs: 1
+name: RescueWorldLLGPT

@@ -1,0 +1,4 @@
+params:
+  config:
+    name: RescueWorldLL
+    model_type: PPO

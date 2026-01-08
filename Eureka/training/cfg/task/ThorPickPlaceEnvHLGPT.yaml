@@ -1,0 +1,6 @@
+env:
+  env_name: thor_pnp_hlGPT
+  env_type: pnp
+  level: high
+  numEnvs: 1
+name: ThorPickPlaceEnvHLGPT

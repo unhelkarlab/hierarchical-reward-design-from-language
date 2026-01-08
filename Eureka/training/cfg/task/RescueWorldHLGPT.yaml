@@ -1,0 +1,6 @@
+env:
+  env_name: rescue_world_hlGPT
+  env_type: rw4t
+  level: high
+  numEnvs: 1
+name: RescueWorldHLGPT

@@ -1,0 +1,14 @@
+wo_B_C_iql10_top2_prompt+Qlearned-comp_lang:
+  priority: [["Bob Soup"], ["Cathy Soup"]]
+  eval_env_seed_start: -3
+  eval_env_seed_end:
+  num_soup_orders: 3
+  game_map: ring
+
+  hl_mode: prompt+Qlearned-comp
+  prompt_style: lang
+  num_demos: 10
+  text_desc: False
+  q_eval: True
+  top_k_llm: 2
+  model: gpt4o

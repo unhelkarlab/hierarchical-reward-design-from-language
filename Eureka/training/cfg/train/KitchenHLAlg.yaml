@@ -1,0 +1,4 @@
+params:
+  config:
+    name: KitchenHL
+    model_type: MaskableDQN

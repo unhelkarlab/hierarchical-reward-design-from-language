@@ -1,0 +1,6 @@
+env:
+  env_name: rescue_world_flatsaGPT
+  env_type: rw4t
+  level: flatsa
+  numEnvs: 1
+name: RescueWorldFlatSAGPT

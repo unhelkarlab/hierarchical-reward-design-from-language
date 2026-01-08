@@ -1,0 +1,4 @@
+params:
+  config:
+    model_type: PPO
+    name: RescueWorldLLGPT

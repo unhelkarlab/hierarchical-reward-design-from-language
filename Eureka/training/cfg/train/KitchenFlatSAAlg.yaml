@@ -1,0 +1,4 @@
+params:
+  config:
+    name: KitchenFlatSA
+    model_type: MaskableDQN

@@ -1,0 +1,4 @@
+params:
+  config:
+    name: RescueWorldHL
+    model_type: VariableStepDQN

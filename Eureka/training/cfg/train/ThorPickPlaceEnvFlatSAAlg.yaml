@@ -1,0 +1,4 @@
+params:
+  config:
+    name: ThorPickPlaceEnvFlatSA
+    model_type: PPO

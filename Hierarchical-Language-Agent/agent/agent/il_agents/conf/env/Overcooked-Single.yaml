@@ -1,0 +1,7 @@
+# @package _global_
+
+env_name: Overcooked-Single
+data_path: il_agents/iql/D/1demos/overcooked_ring_1demos.pkl
+
+n_traj: 1
+# dim_c: 5

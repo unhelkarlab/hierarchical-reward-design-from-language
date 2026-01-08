@@ -1,0 +1,8 @@
+def get_low_level_pref_gpt(state: Dict, option: int, action: int) -> Tuple[float, Dict[str, float]]:
+  '''
+  state: the current state of the environment.
+  option: the option (subtask) selected by the agent in the current state.
+  action: the action that the agent is about to perform in the current state.
+  '''
+  ...
+  return reward, reward_components

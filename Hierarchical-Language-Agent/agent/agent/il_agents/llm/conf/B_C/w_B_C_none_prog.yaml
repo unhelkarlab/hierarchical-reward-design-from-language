@@ -1,0 +1,14 @@
+w_B_C_none_prog:
+  priority: [["Bob Soup"], ["Cathy Soup"]]
+  eval_env_seed_start: -3
+  eval_env_seed_end:
+  num_soup_orders: 3
+  game_map: ring
+
+  hl_mode: prompt
+  prompt_style: prog
+  num_demos: 0
+  text_desc: True
+  q_eval: False
+  top_k_llm: -1
+  model: gpt4o

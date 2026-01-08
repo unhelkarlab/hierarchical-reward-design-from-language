@@ -1,0 +1,10 @@
+[project]
+name = "eureka"
+version = "0.1.0"
+
+dependencies = [
+    "astor"
+]
+
+[tool.setuptools]
+packages = ["eureka", "training"]  # Explicitly specify packages

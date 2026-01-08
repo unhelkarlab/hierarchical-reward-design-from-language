@@ -1,0 +1,33 @@
+task: ThorPickPlaceEnvLL
+env_name: thor_pnp_ll
+short_name: thor_pnp_ll
+level: low
+timesteps: 1_500_000
+description: |
+  Task description: 
+  The task objective is to pick up all apples and eggs on the dining table and place them in the sink.
+  In the task reward, the agent gets a reward of +10 after it successfully picks up an object and places it in the sink,
+  and a step cost of -0.1 for each time step taken.
+  The reward function you write does not need to encode the task objective. 
+
+  Relevant task spaces:
+  The agent's option/subtask (referred to as self.pnp_hl_actions in the code) space consists of picking up and placing the two types of objects.
+  Each option takes multiple action steps to complete. 
+  Taking a 'pick' option means that the agent will navigate to an object and pick it up.
+  Taking a 'place' option means that the agent will navigate to the delivery location and place the object there.
+  Note that the agent has to first go to the object to pick it up before placing the object.
+
+  The agent's action (referred to as self.pnp_ll_actions in the code) space consists of the primitives for:
+  moving forward, rotating left, rotating right, picking up the closest object, and placing a held object in receptacle.
+  The agent can only perform the low level pick or place primitive only if the agent is close enough to an object or a receptacle.
+
+  User preference:
+  The agent should avoid the stool in the environment both when it is on its way to pick up an egg and place an egg down.
+  More specifically, the agent should be penalized when it is within 1.5 meters of the stool.
+  However, the agent does not need to avoid the stool when it is on its way to pick up an apple or place an apple down.
+
+  Additional info: 
+  You need to write a reward function to encode this user preference.
+  The preference function you write will be used together with the task reward to train the agent.
+  Please make sure NOT to make the reward function stateful (i.e. you should not use function attributes or global variables.)
+  You should also not write any other helper functions.

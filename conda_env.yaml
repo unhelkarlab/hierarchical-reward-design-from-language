@@ -1,0 +1,7 @@
+name: hrd
+channels:
+  - defaults
+dependencies:
+  - python=3.9
+  - flake8
+  - yapf

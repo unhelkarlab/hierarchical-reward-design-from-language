@@ -1,0 +1,29 @@
+task: RescueWorldHL
+env_name: rescue_world_hl
+short_name: rw_hl
+level: high
+timesteps: 3_000_000
+description: |
+  Task description: 
+  The task objective is to deliver all objects on the map.
+  In the task reward, the agent gets a reward of +30 when it successfully delivers an object,
+  and a step cost of -1 for each time step taken.
+  The reward function you write does not need to encode the task objective. 
+
+  Relevant task spaces:
+  The agent's option/subtask (referred to as HL_Action in the code) space consists of going to and delivering the two types of objects.
+  Each option takes multiple action steps to complete. 
+  Taking a 'go to' option means that the agent will navigate to a supply and pick it up.
+  Taking a 'deliver' option means that the agent will navigate to the delivery location and drop the object.
+  Note that the agent has to first go to the object to pick it up before delivering the object.
+
+  User preference:
+  The agent should pick up an object type that's the same as the previously delivered object type, 
+  if there are still objects of that type remaining in the environment.
+  Otherwise, the agent should pick up an object of a different type.
+  
+  Additional info: 
+  You need to write a reward function to encode this user preference.
+  The preference function you write will be used together with the task reward to train the agent.
+  Please make sure NOT to make the reward function stateful (i.e. you should not use function attributes or global variables.)
+  You should also not write any other helper functions.

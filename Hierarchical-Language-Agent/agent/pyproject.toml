@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent"
+version = "1.0.0"
+
+requires-python = ">=3.8"
+dependencies = [
+    "openai",
+    "requests",
+]
+
+[tool.setuptools.packages.find]
+exclude = []

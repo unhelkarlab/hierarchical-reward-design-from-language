@@ -1,0 +1,6 @@
+name: ThorPickPlaceEnvLL
+
+env:
+  numEnvs: 1
+  env_type: pnp
+  level: low

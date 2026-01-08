@@ -1,0 +1,14 @@
+wo_D_A_iql3_top3_prompt+Qlearned-skill_prog:
+  priority: [["David Soup"], ["Alice Soup"]]
+  eval_env_seed_start: -3
+  eval_env_seed_end:
+  num_soup_orders: 3
+  game_map: ring
+
+  hl_mode: prompt+Qlearned-skill
+  prompt_style: prog
+  num_demos: 3
+  text_desc: False
+  q_eval: True
+  top_k_llm: 3
+  model: gpt4o

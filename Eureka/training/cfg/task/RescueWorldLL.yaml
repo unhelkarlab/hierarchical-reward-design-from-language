@@ -1,0 +1,6 @@
+name: RescueWorldLL
+
+env:
+  numEnvs: 1
+  env_type: rw4t
+  level: low

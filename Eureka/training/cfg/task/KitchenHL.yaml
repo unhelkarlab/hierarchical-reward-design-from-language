@@ -1,0 +1,6 @@
+name: KitchenHL
+
+env:
+  numEnvs: 1
+  env_type: oc
+  level: high

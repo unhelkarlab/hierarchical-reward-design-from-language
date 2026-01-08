@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hrd"
+version = "0.1.0"
+description = "Hierarchical Reward Design"
+
+dependencies = [
+    "hydra-core",
+    "numpy==1.24.4",
+    "matplotlib",
+    "openai",
+    "tensorboard",
+    "pyyaml",
+    "gpustat",
+    "torch==2.8.0",
+    "torchvision==0.23.0",
+    "torchaudio==2.8.0",
+    "gymnasium==0.29.1",
+    "stable-baselines3==2.2.1",
+    "seaborn",
+    "imageio[ffmpeg]",
+    "ai2thor",
+    "pynput",
+    "pillow",
+    "wandb",
+    "natsort"
+]
+
+[tool.setuptools]
+packages = ["rw4t", "HierRL"]
