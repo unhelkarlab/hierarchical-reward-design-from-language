@@ -46,6 +46,8 @@ To train a high-level policy:
 
 `TODO`
 
+To replicate the proof-of-concept experiments shown in Table 3 in the Appendix of the paper, we split up hierarchical policy training into two categories: expert-defined hierarchical rewards and expert-defined flat rewards.
+
 **Using Expert-Defined Hierarchical Rewards**
 
 To train a low-level policy:
@@ -66,6 +68,6 @@ To train a high-level policy:
 
 `TODO`
 
-### Evaluating
+### Evaluating Policies
 
 TODO
