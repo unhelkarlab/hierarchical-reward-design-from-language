@@ -1,4 +1,4 @@
-name: hrd
+name: hrdl
 channels:
   - defaults
 dependencies:

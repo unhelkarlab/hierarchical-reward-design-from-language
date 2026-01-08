@@ -26,5 +26,5 @@ num_options: -1
 
 # Weights and Biases
 use_wandb: True # whether to use wandb for logging
-wandb_username: "rd88" # wandb username if logging with wandb
-wandb_project: "hrd_eureka" # wandb project if logging with wandb
+wandb_username: "" # wandb username if logging with wandb
+wandb_project: "hrdl" # wandb project if logging with wandb
