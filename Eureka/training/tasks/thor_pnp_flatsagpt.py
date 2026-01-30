@@ -4,6 +4,7 @@ import random
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
+import imageio.v2 as imageio
 from ai2thor.controller import Controller
 from ai2thor.platform import CloudRendering
 from typing import Dict, Any, Optional, Tuple
@@ -53,7 +54,8 @@ class ThorPickPlaceEnvFlatSAGPT(gym.Env):
       hl_pref_r=None,
       option: PnP_HL_Actions = None,
       seed: Optional[int] = None,
-      render: bool = True):
+      render: bool = True,
+      pnp_game_params: dict = {}):
     super().__init__()
     # Save config
     self.scene = scene
@@ -131,6 +133,23 @@ class ThorPickPlaceEnvFlatSAGPT(gym.Env):
     # High level action space: Options (pick up/drop specific items)
     # Option values
     self.option = option
+
+    # Recording inits
+    if 'record' in pnp_game_params and pnp_game_params['record']:
+      self.record_game = True
+      if 'record_path' in pnp_game_params:
+        self.record_path = pnp_game_params['record_path']
+      else:
+        self.record_path = f'pnp_{scene}.mp4'
+    else:
+      self.record_game = False
+
+    self._video_writer = None
+    self._record_fps = pnp_game_params.get('record_fps', 5) if isinstance(
+        pnp_game_params, dict) else 5
+    if self.record_game:
+      print('Starting video writer...')
+      self._start_video_writer(self.record_path, self._record_fps)
 
     # Initialize environment
     self._setup_env()
@@ -221,6 +240,8 @@ class ThorPickPlaceEnvFlatSAGPT(gym.Env):
 
     obs = self._get_obs()
     info = {}
+    if self.record_game:
+      self._append_frame()
     return obs, info
 
   def ll_reset(self, option, seed: Optional[int] = None) -> bool:
@@ -539,6 +560,8 @@ class ThorPickPlaceEnvFlatSAGPT(gym.Env):
 
     if self.need_render:
       time.sleep(0.2)
+    if self.record_game:
+      self._append_frame()
     return obs, (task_reward, pseudo_reward, ll_pref_reward,
                  hl_pref_reward), terminated, truncated, info
 
@@ -546,6 +569,9 @@ class ThorPickPlaceEnvFlatSAGPT(gym.Env):
     return self._get_obs()
 
   def close(self):
+    if self.record_game:
+      print('Closing video writer...')
+      self._close_video_writer()
     self.controller.stop()
 
   # ---------- Helpers ----------
@@ -1305,6 +1331,60 @@ class ThorPickPlaceEnvFlatSAGPT(gym.Env):
     #   print('HL pref reward: ', hl_pref_reward)
     return hl_pref_reward
 
+  # ---------- Video Recording Helpers ----------
+  def _start_video_writer(self, path: str, fps: int = 5):
+    """
+    Open an ffmpeg-backed writer (via imageio) for mp4 output.
+    Safe to call multiple times; re-opens if needed.
+    """
+    # Close any existing writer first
+    if getattr(self, "_video_writer", None) is not None:
+      try:
+        self._video_writer.close()
+      except Exception:
+        pass
+      self._video_writer = None
+
+    try:
+      # imageio will use ffmpeg under the hood; ensure FFmpeg is available
+      self._video_writer = imageio.get_writer(
+          path,
+          fps=fps,
+          codec='libx264',  # H.264
+          quality=8,  # 0 (worst) .. 10 (best)
+          macro_block_size=None  # avoid resizing warnings
+      )
+    except Exception as e:
+      print(f"[WARN] Failed to start video writer at '{path}': {e}")
+      self._video_writer = None
+      self.record_game = False
+
+  def _append_frame(self):
+    """
+    Append the latest RGB frame from AI2-THOR to the video.
+    """
+    if not self.record_game or self._video_writer is None:
+      return
+    try:
+      # last_event.frame is an RGB uint8 (H,W,3)
+      frame = self.controller.last_event.frame
+      if frame is not None:
+        self._video_writer.append_data(frame)
+    except Exception as e:
+      print(f"[WARN] Failed to append frame: {e}")
+
+  def _close_video_writer(self):
+    """
+    Safely close the video writer.
+    """
+    if getattr(self, "_video_writer", None) is not None:
+      try:
+        self._video_writer.close()
+      except Exception as e:
+        print(f"[WARN] Failed to close video writer: {e}")
+      finally:
+        self._video_writer = None
+
   def get_high_level_pref_gpt(self, state, prev_option, option):
     pass
 
@@ -1324,36 +1404,50 @@ def get_flat_sa_pref_gpt(state: Dict, action: int) -> Tuple[float, Dict[str, flo
     action: the (low-level) action that the agent is about to perform in the current state.
     '''
 
-    # Preference reward components
-    reward_components = {
-        "stool_avoidance_penalty": 0.0,
-        "object_alternation_reward": 0.0
-    }
+    # Reward components
+    stool_avoidance_penalty = 0.0
+    alternating_object_preference_reward = 0.0
+
+    # Access variables from state
+    agent_pos = np.array(state['agent_pos'])
+    stool_pos = np.array(state['stool_pos'])
+    apple_1_pos = np.array(state['apple_1_pos'])
+    apple_2_pos = np.array(state['apple_2_pos'])
+    egg_1_pos = np.array(state['egg_1_pos'])
+    egg_2_pos = np.array(state['egg_2_pos'])
+    apple_states = [state['apple_1_state'], state['apple_2_state']]
+    egg_states = [state['egg_1_state'], state['egg_2_state']]
     
-    # Calculate distance to stool
-    agent_pos = state["agent_pos"]
-    stool_pos = state["stool_pos"]
-    distance_to_stool = np.linalg.norm(np.array(agent_pos) - np.array(stool_pos))
+    # Calculate distance to nearby objects and stool
+    stool_distance = np.linalg.norm(agent_pos - stool_pos)
 
-    # Preference: Penalize if the agent is within 1.5 meters to the stool 
-    # only when dealing with eggs
-    current_action = PnP_LL_Actions[action]
-    if distance_to_stool < 1.5:
-        if (current_action == "PickupNearestTarget" or current_action == "PutHeldOnReceptacle") and self.prev_option == PnP_HL_Actions.pick_egg:
-            reward_components["stool_avoidance_penalty"] = -1.0
+    # Check if the agent is holding an object
+    held_apples = apple_states.count(1)
+    held_eggs = egg_states.count(1)
 
-    # Preference: Reward alternating object type pickup if there are still objects of the other type on the table
-    # Check what was the previous object type placed and decide alternately
-    if current_action == "PickupNearestTarget":
-        apple_on_table = state["apple_1_state"] == 0 or state["apple_2_state"] == 0
-        egg_on_table = state["egg_1_state"] == 0 or state["egg_2_state"] == 0
+    # Stool avoidance preference
+    if held_eggs > 0:  # Penalty if the agent is holding an egg
+        if stool_distance < 1.5:
+            stool_avoidance_penalty = -2.0
 
-        if self.prev_option == PnP_HL_Actions.drop_egg and apple_on_table:
-            reward_components["object_alternation_reward"] = 5.0
-        elif self.prev_option == PnP_HL_Actions.drop_apple and egg_on_table:
-            reward_components["object_alternation_reward"] = 5.0
+    # Alternating object preference
+    if held_apples == 0 and held_eggs == 0:  # When the agent is picking or on its way to pick
+        # Check if last held object was an egg and apple is now available on table
+        if (self.prev_option == PnP_HL_Actions.drop_egg.value and 
+            (0 in apple_states)):  
+            alternating_object_preference_reward = 15.0
+        # Check if last held object was apple and egg is now available on table
+        elif (self.prev_option == PnP_HL_Actions.drop_apple.value and 
+              (0 in egg_states)):
+            alternating_object_preference_reward = 15.0
 
-    # Total user preference reward
-    preference_reward = sum(reward_components.values())
+    # Calculate total preference reward
+    total_preference_reward = stool_avoidance_penalty + alternating_object_preference_reward
 
-    return preference_reward, reward_components
+    # Set up reward components dictionary
+    reward_components = {
+        'stool_avoidance_penalty': stool_avoidance_penalty,
+        'alternating_object_preference_reward': alternating_object_preference_reward
+    }
+
+    return total_preference_reward, reward_components
