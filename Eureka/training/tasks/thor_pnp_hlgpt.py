@@ -4,6 +4,7 @@ import random
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
+import imageio.v2 as imageio
 from ai2thor.controller import Controller
 from ai2thor.platform import CloudRendering
 from typing import Dict, Any, Optional, Tuple
@@ -53,7 +54,8 @@ class ThorPickPlaceEnvHLGPT(gym.Env):
       hl_pref_r=None,
       option: PnP_HL_Actions = None,
       seed: Optional[int] = None,
-      render: bool = True):
+      render: bool = True,
+      pnp_game_params: dict = {}):
     super().__init__()
     # Save config
     self.scene = scene
@@ -131,6 +133,23 @@ class ThorPickPlaceEnvHLGPT(gym.Env):
     # High level action space: Options (pick up/drop specific items)
     # Option values
     self.option = option
+
+    # Recording inits
+    if 'record' in pnp_game_params and pnp_game_params['record']:
+      self.record_game = True
+      if 'record_path' in pnp_game_params:
+        self.record_path = pnp_game_params['record_path']
+      else:
+        self.record_path = f'pnp_{scene}.mp4'
+    else:
+      self.record_game = False
+
+    self._video_writer = None
+    self._record_fps = pnp_game_params.get('record_fps', 5) if isinstance(
+        pnp_game_params, dict) else 5
+    if self.record_game:
+      print('Starting video writer...')
+      self._start_video_writer(self.record_path, self._record_fps)
 
     # Initialize environment
     self._setup_env()
@@ -221,6 +240,8 @@ class ThorPickPlaceEnvHLGPT(gym.Env):
 
     obs = self._get_obs()
     info = {}
+    if self.record_game:
+      self._append_frame()
     return obs, info
 
   def ll_reset(self, option, seed: Optional[int] = None) -> bool:
@@ -539,6 +560,8 @@ class ThorPickPlaceEnvHLGPT(gym.Env):
 
     if self.need_render:
       time.sleep(0.2)
+    if self.record_game:
+      self._append_frame()
     return obs, (task_reward, pseudo_reward, ll_pref_reward,
                  hl_pref_reward), terminated, truncated, info
 
@@ -546,6 +569,9 @@ class ThorPickPlaceEnvHLGPT(gym.Env):
     return self._get_obs()
 
   def close(self):
+    if self.record_game:
+      print('Closing video writer...')
+      self._close_video_writer()
     self.controller.stop()
 
   # ---------- Helpers ----------
@@ -1305,6 +1331,60 @@ class ThorPickPlaceEnvHLGPT(gym.Env):
     #   print('HL pref reward: ', hl_pref_reward)
     return hl_pref_reward
 
+  # ---------- Video Recording Helpers ----------
+  def _start_video_writer(self, path: str, fps: int = 5):
+    """
+    Open an ffmpeg-backed writer (via imageio) for mp4 output.
+    Safe to call multiple times; re-opens if needed.
+    """
+    # Close any existing writer first
+    if getattr(self, "_video_writer", None) is not None:
+      try:
+        self._video_writer.close()
+      except Exception:
+        pass
+      self._video_writer = None
+
+    try:
+      # imageio will use ffmpeg under the hood; ensure FFmpeg is available
+      self._video_writer = imageio.get_writer(
+          path,
+          fps=fps,
+          codec='libx264',  # H.264
+          quality=8,  # 0 (worst) .. 10 (best)
+          macro_block_size=None  # avoid resizing warnings
+      )
+    except Exception as e:
+      print(f"[WARN] Failed to start video writer at '{path}': {e}")
+      self._video_writer = None
+      self.record_game = False
+
+  def _append_frame(self):
+    """
+    Append the latest RGB frame from AI2-THOR to the video.
+    """
+    if not self.record_game or self._video_writer is None:
+      return
+    try:
+      # last_event.frame is an RGB uint8 (H,W,3)
+      frame = self.controller.last_event.frame
+      if frame is not None:
+        self._video_writer.append_data(frame)
+    except Exception as e:
+      print(f"[WARN] Failed to append frame: {e}")
+
+  def _close_video_writer(self):
+    """
+    Safely close the video writer.
+    """
+    if getattr(self, "_video_writer", None) is not None:
+      try:
+        self._video_writer.close()
+      except Exception as e:
+        print(f"[WARN] Failed to close video writer: {e}")
+      finally:
+        self._video_writer = None
+
   def get_high_level_pref_gpt(self, state, prev_option, option):
     if not isinstance(state, dict): state = state.state_to_dict()
     reward, reward_dict = get_high_level_pref_gpt(state, prev_option, option)
@@ -1319,40 +1399,37 @@ class ThorPickPlaceEnvHLGPT(gym.Env):
 from typing import Dict, Tuple
 import math
 def get_high_level_pref_gpt(state: Dict, prev_option: int, option: int) -> Tuple[float, Dict[str, float]]:
-    """
-    state: The current state of the environment.
-    prev_option: The last high-level subtask executed by the agent to reach the current state.
-    option: The high-level subtask the agent is about to perform in the current state.
-    """
-    # Identify which object was handled in the previous option
-    prev_handled_type = prev_option if prev_option in [PnP_HL_Actions.drop_apple.value, PnP_HL_Actions.drop_egg.value] else None
-    current_deck = {
-        PnP_HL_Actions.drop_apple.value: [PnP_HL_Actions.pick_apple.value],
-        PnP_HL_Actions.drop_egg.value: [PnP_HL_Actions.pick_egg.value]
-    }
+    '''
+    state: the current state of the environment.
+    prev_option: the last option (subtask) executed by the agent to reach the current state.
+    option: the option (subtask) the agent is about to perform in the current state.
+    '''
 
-    # Initializing preference reward and components
-    preference_reward = 0.0
+    # Initialize reward components
+    alternating_pref_reward = 0.0
+
+    # Decode prev_option and current option
+    prev_action_category = prev_option // 2  # 0 for apple, 1 for egg
+    current_action_category = option // 2  # 0 for apple, 1 for egg
+
+    # Check if the previous action was a drop action
+    if prev_option in [PnP_HL_Actions.drop_apple.value, PnP_HL_Actions.drop_egg.value]:
+        # Check if the current option is to pick a different type of object
+        if prev_action_category != current_action_category:
+            # Ensure that there are still objects of the other type on the table to pick
+            if (
+                (current_action_category == 0 and (state["apple_1_state"] == 0 or state["apple_2_state"] == 0)) or
+                (current_action_category == 1 and (state["egg_1_state"] == 0 or state["egg_2_state"] == 0))
+            ):
+                # Provide a reward for picking a different object type after placing one
+                alternating_pref_reward = 5.0
+
+    # Compose the overall user preference reward
+    total_reward = alternating_pref_reward
+
+    # Construct reward components dictionary
     reward_components = {
-        "alt_object_bonus": 0.0
+        "alternating_pref_reward": alternating_pref_reward
     }
 
-    # Check if there's a preference for alternating objects
-    if prev_handled_type is not None:
-        # Determine other types available on the table
-        is_other_type_available = False
-        other_type = None
-
-        if prev_handled_type == PnP_HL_Actions.drop_apple.value:
-            other_type = PnP_HL_Actions.pick_egg.value
-            is_other_type_available = any(state[f"egg_{i}_state"] == 0 for i in range(1, 3))
-        elif prev_handled_type == PnP_HL_Actions.drop_egg.value:
-            other_type = PnP_HL_Actions.pick_apple.value
-            is_other_type_available = any(state[f"apple_{i}_state"] == 0 for i in range(1, 3))
-
-        # Apply preference reward for alternating object selection
-        if other_type and option == other_type and is_other_type_available:
-            preference_reward += 3.0  # Ensure user preference takes more significance over step cost
-            reward_components["alt_object_bonus"] = 3.0
-
-    return preference_reward, reward_components
+    return total_reward, reward_components

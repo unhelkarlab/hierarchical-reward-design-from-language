@@ -1399,55 +1399,66 @@ class ThorPickPlaceEnvFlatSAGPT(gym.Env):
 from typing import Dict, Tuple
 import math
 def get_flat_sa_pref_gpt(state: Dict, action: int) -> Tuple[float, Dict[str, float]]:
-    '''
-    state: the current state of the environment.
-    action: the (low-level) action that the agent is about to perform in the current state.
-    '''
-
-    # Reward components
-    stool_avoidance_penalty = 0.0
-    alternating_object_preference_reward = 0.0
-
-    # Access variables from state
-    agent_pos = np.array(state['agent_pos'])
-    stool_pos = np.array(state['stool_pos'])
-    apple_1_pos = np.array(state['apple_1_pos'])
-    apple_2_pos = np.array(state['apple_2_pos'])
-    egg_1_pos = np.array(state['egg_1_pos'])
-    egg_2_pos = np.array(state['egg_2_pos'])
-    apple_states = [state['apple_1_state'], state['apple_2_state']]
-    egg_states = [state['egg_1_state'], state['egg_2_state']]
+    """
+    Compute the user preference reward for the given state and action in the environment.
     
-    # Calculate distance to nearby objects and stool
-    stool_distance = np.linalg.norm(agent_pos - stool_pos)
-
-    # Check if the agent is holding an object
-    held_apples = apple_states.count(1)
-    held_eggs = egg_states.count(1)
-
-    # Stool avoidance preference
-    if held_eggs > 0:  # Penalty if the agent is holding an egg
-        if stool_distance < 1.5:
-            stool_avoidance_penalty = -2.0
-
-    # Alternating object preference
-    if held_apples == 0 and held_eggs == 0:  # When the agent is picking or on its way to pick
-        # Check if last held object was an egg and apple is now available on table
-        if (self.prev_option == PnP_HL_Actions.drop_egg.value and 
-            (0 in apple_states)):  
-            alternating_object_preference_reward = 15.0
-        # Check if last held object was apple and egg is now available on table
-        elif (self.prev_option == PnP_HL_Actions.drop_apple.value and 
-              (0 in egg_states)):
-            alternating_object_preference_reward = 15.0
-
-    # Calculate total preference reward
-    total_preference_reward = stool_avoidance_penalty + alternating_object_preference_reward
-
-    # Set up reward components dictionary
+    state: The current state of the environment.
+    action: The (low-level) action that the agent is about to perform in the current state.
+    
+    Returns:
+    - The computed user preference reward.
+    - A dictionary with each individual reward component.
+    """
+    reward = 0.0
     reward_components = {
-        'stool_avoidance_penalty': stool_avoidance_penalty,
-        'alternating_object_preference_reward': alternating_object_preference_reward
+        'avoid_stool_penalty': 0.0,
+        'alternating_object_bonus': 0.0,
     }
+    
+    # Constants
+    stool_avoid_radius = 1.5
+    alternating_bonus = 9.5  # Higher than step cost but lower than task reward
 
-    return total_preference_reward, reward_components
+    # Extract positions and states
+    agent_pos = np.array(state["agent_pos"])
+    stool_pos = np.array(state["stool_pos"])
+    apple_1_state = state["apple_1_state"]
+    apple_2_state = state["apple_2_state"]
+    egg_1_state = state["egg_1_state"]
+    egg_2_state = state["egg_2_state"]
+
+    # Calculate distance to stool
+    distance_to_stool = np.linalg.norm(agent_pos - stool_pos)
+
+    # Check if the agent is in "PickupNearestTarget" or "PutHeldOnReceptacle" actions
+    if action == PnP_LL_Actions.index("PickupNearestTarget") or action == PnP_LL_Actions.index("PutHeldOnReceptacle"):
+        # Determine the type of object being picked or placed
+        if action == PnP_LL_Actions.index("PickupNearestTarget") and (apple_1_state == 0 or apple_2_state == 0):
+            current_object = "apple"
+        elif action == PnP_LL_Actions.index("PickupNearestTarget") and (egg_1_state == 0 or egg_2_state == 0):
+            current_object = "egg"
+        elif action == PnP_LL_Actions.index("PutHeldOnReceptacle") and (apple_1_state == 1 or apple_2_state == 1):
+            current_object = "apple"
+        elif action == PnP_LL_Actions.index("PutHeldOnReceptacle") and (egg_1_state == 1 or egg_2_state == 1):
+            current_object = "egg"
+        else:
+            current_object = None
+
+        # Apply stool avoidance penalty for eggs only
+        if current_object == "egg" and distance_to_stool <= stool_avoid_radius:
+            reward_components['avoid_stool_penalty'] = -0.5
+            reward += reward_components['avoid_stool_penalty']
+        
+        # Check for alternating pick-up
+        apples_on_table = (apple_1_state == 0 or apple_2_state == 0)
+        eggs_on_table = (egg_1_state == 0 or egg_2_state == 0)
+
+        if action == PnP_LL_Actions.index("PickupNearestTarget"):
+            # Give reward bonus if the agent picks an object type different from the last placed object type
+            if state.get("prev_object_type") == "apple" and current_object == "egg" and eggs_on_table:
+                reward_components['alternating_object_bonus'] = alternating_bonus
+            elif state.get("prev_object_type") == "egg" and current_object == "apple" and apples_on_table:
+                reward_components['alternating_object_bonus'] = alternating_bonus
+            reward += reward_components['alternating_object_bonus']
+
+    return reward, reward_components

@@ -67,6 +67,8 @@ class RescueWorldLLGPT(gym.Env):
                low_level,
                hl_pref_r,
                pbrs_r,
+               rw4t_game_params=dict(),
+               init_pos=None,
                ez=True,
                pref_dict_name='',
                pref_dict=None,
@@ -145,7 +147,12 @@ class RescueWorldLLGPT(gym.Env):
     self.total_num_to_drop = self.pref_dict['total_num']
 
     # Set position, holding, and state info
-    self.init_pos = self.choose_rand_start_pos()
+    self.init_pos = init_pos
+    if 'valid_start_pos' in self.pref_dict and self.pref_dict[
+        'valid_start_pos'] != []:
+      self.valid_start_pos = self.pref_dict['valid_start_pos']
+    else:
+      self.valid_start_pos = None
     self.map = deepcopy(self.init_map)
     if not self.low_level:
       self.reset()
@@ -202,9 +209,12 @@ class RescueWorldLLGPT(gym.Env):
 
     self.if_render = render
     if render:
-      self.game = RW4T_Game(self, play=True)
-      self.game.low_level = True  # so it displays the current "option"
+      rw4t_game_params['env'] = self
+      rw4t_game_params['play'] = True
+      self.game = RW4T_Game(**rw4t_game_params)
+      self.game.low_level = False  # whether to display the current "option"
       self.game.on_init()
+      self.game.on_render()
 
   def step(self, ll_action, hl_action, passed_time=0):
     self.timestep += 1
@@ -265,6 +275,12 @@ class RescueWorldLLGPT(gym.Env):
       assert len(drop_info) == 1
       for obj in drop_info:
         self.last_drop = obj
+      for obj, loc in drop_info.items():
+        # If the agent dropped off an object at a landmark
+        if (loc == rw4t_utils.RW4T_State.school.value
+            or loc == rw4t_utils.RW4T_State.hospital.value
+            or loc == rw4t_utils.RW4T_State.park.value):
+          self.all_drops.append((obj, loc))
     # Reward
     # reward = self.calculate_rewards(drop_info, new_in_danger_zone)
     task_reward = self.get_task_reward(ll_action, drop_info)
@@ -277,27 +293,44 @@ class RescueWorldLLGPT(gym.Env):
                                                     ll_action)
       gt_ll_pref_reward += self.get_low_level_pref(self.old_state, hl_action,
                                                    ll_action)
+    elif 'FlatSAGPT' in self.__class__.__name__:
+      ll_pref_reward += self.get_flat_sa_pref_gpt(self.old_state, ll_action)
+      gt_ll_pref_reward += self.get_low_level_pref(self.old_state, hl_action,
+                                                   ll_action)
     else:
-      ll_pref_reward += self.get_low_level_pref(self.old_state, hl_action,
-                                                ll_action)
-      gt_ll_pref_reward += ll_pref_reward
+      if self.hl_pref_r:
+        ll_pref_reward += self.get_low_level_pref(self.old_state, hl_action,
+                                                  ll_action)
+        gt_ll_pref_reward += ll_pref_reward
+      else:
+        ll_pref_reward += self.get_flatsa_pref(self.old_state, ll_action)
+        gt_ll_pref_reward += self.get_low_level_pref(self.old_state, hl_action,
+                                                     ll_action)
     hl_pref_reward = 0
     gt_hl_pref_reward = 0
     pbrs_reward = 0
-    if self.hl_pref_r:
-      if 'HLGPT' in self.__class__.__name__:
-        hl_pref_reward += self.get_high_level_pref_gpt(self.old_state,
-                                                       self.prev_option,
-                                                       hl_action)
-        gt_hl_pref_reward += self.get_high_level_pref(self.old_state,
-                                                      self.prev_option,
-                                                      hl_action)
-      else:
+    # if self.hl_pref_r:
+    if 'HLGPT' in self.__class__.__name__:
+      hl_pref_reward += self.get_high_level_pref_gpt(self.old_state,
+                                                     self.prev_option,
+                                                     hl_action)
+      gt_hl_pref_reward += self.get_high_level_pref(self.old_state,
+                                                    self.prev_option, hl_action)
+    elif 'FlatSAGPT' in self.__class__.__name__:
+      hl_pref_reward += self.get_flat_sa_pref_gpt(self.old_state, ll_action)
+      gt_hl_pref_reward += self.get_high_level_pref(self.old_state,
+                                                    self.prev_option, hl_action)
+    else:
+      if self.hl_pref_r:
         hl_pref_reward += self.get_high_level_pref(self.old_state,
                                                    self.prev_option, hl_action)
         gt_hl_pref_reward += hl_pref_reward
-    if self.pbrs_r:
-      pbrs_reward += self.get_high_level_pref_pbrs(hl_action)
+      else:
+        hl_pref_reward += self.get_flatsa_pref(self.old_state, ll_action)
+        gt_hl_pref_reward += self.get_high_level_pref(self.old_state,
+                                                      self.prev_option,
+                                                      hl_action)
+    pbrs_reward += self.get_high_level_pref_pbrs(hl_action)
     r = (task_reward, pseudo_reward, ll_pref_reward, hl_pref_reward,
          pbrs_reward)
     # print('task reward: ', task_reward)
@@ -321,6 +354,7 @@ class RescueWorldLLGPT(gym.Env):
       done, truncated = self.check_done_ll(pseudo_reward)
       if not done and not truncated:
         self.option_mask[self.option] = 1
+    info['all_drops'] = self.all_drops
     # Write transitions
     if self.write and (done or executed_action is not None or self.first_write):
       self.first_write = False
@@ -378,6 +412,7 @@ class RescueWorldLLGPT(gym.Env):
     self.c_gt_ll_pref = 0
     self.prev_option = self.rw4t_hl_actions_with_dummy.dummy.value
     self.map = deepcopy(self.init_map)
+    self.all_drops = []
     if self.low_level:
       if (options is not None and 'option' in options
           and self.check_valid_option(options['option'])):
@@ -388,7 +423,10 @@ class RescueWorldLLGPT(gym.Env):
     self.last_pickup = rw4t_utils.RW4T_State.empty.value
     self.last_drop = rw4t_utils.RW4T_State.empty.value
     self.option_mask = np.zeros(len(self.rw4t_hl_actions))
-    self.agent_pos = self.choose_rand_start_pos()
+    if self.init_pos is None:
+      self.agent_pos = self.choose_rand_start_pos()
+    else:
+      self.agent_pos = self.init_pos
     self.agent_holding = 0
     self.state = RW4T_GameState(self.map, self.agent_pos, self.agent_holding,
                                 self.last_pickup, self.last_drop,
@@ -407,12 +445,17 @@ class RescueWorldLLGPT(gym.Env):
     self.option_mask = np.zeros(len(self.rw4t_hl_actions))
     self.option_mask[option] = 1
     if self.check_is_pick_option(option):
-      # If the option is a pick, randomly choose a start position for the agent
-      if np.random.rand() < 0.2:
+      if sum(obj_remove_counts.values()) == 0:
+        self.agent_pos = self.choose_rand_start_pos()
+      else:
         random_drop_loc = random.choice(self.get_all_drop_locations())
         self.agent_pos = random_drop_loc
-      else:
-        self.agent_pos = self.choose_rand_start_pos()
+      # If the option is a pick, randomly choose a start position for the agent
+      # if np.random.rand() < 0.2:
+      #   random_drop_loc = random.choice(self.get_all_drop_locations())
+      #   self.agent_pos = random_drop_loc
+      # else:
+      #   self.agent_pos = self.choose_rand_start_pos()
       # If the agent is at a drop location, randomly choose a viable last_drop
       # object.
       if self.agent_pos in self.get_all_drop_locations():
@@ -689,20 +732,20 @@ class RescueWorldLLGPT(gym.Env):
                        self.old_state.pos[0]] in self.object_pref[square_val]
           and self.old_state.last_drop == rw4t_utils.RW4T_State.square.value):
         return self.diversity_reward
-    # If we just delivered a triangle, the agent is rewarded to pick up another
-    # type of object if the other type is available.
-    if (self.prev_option == self.rw4t_hl_actions.deliver_triangle.value
-        and ((len(useful_objs[circle_val]) > 0
-              and curr_o == self.rw4t_hl_actions.go_to_circle.value) or
-             (len(useful_objs[square_val]) > 0
-              and curr_o == self.rw4t_hl_actions.go_to_square.value))):
-      # If the agent is standing at a drop location for triangles and just
-      # dropped a triangle
-      if (triangle_val in self.object_pref
-          and self.map[self.old_state.pos[1],
-                       self.old_state.pos[0]] in self.object_pref[triangle_val]
-          and self.old_state.last_drop == rw4t_utils.RW4T_State.triangle.value):
-        return self.diversity_reward
+    # # If we just delivered a triangle, the agent is rewarded to pick up another
+    # # type of object if the other type is available.
+    # if (self.prev_option == self.rw4t_hl_actions.deliver_triangle.value
+    #     and ((len(useful_objs[circle_val]) > 0
+    #           and curr_o == self.rw4t_hl_actions.go_to_circle.value) or
+    #          (len(useful_objs[square_val]) > 0
+    #           and curr_o == self.rw4t_hl_actions.go_to_square.value))):
+    #   # If the agent is standing at a drop location for triangles and just
+    #   # dropped a triangle
+    #   if (triangle_val in self.object_pref
+    #       and self.map[self.old_state.pos[1],
+    #                    self.old_state.pos[0]] in self.object_pref[triangle_val]
+    #       and self.old_state.last_drop == rw4t_utils.RW4T_State.triangle.value):
+    #     return self.diversity_reward
     # No HL preference otherwise.
     return 0
 
@@ -738,19 +781,18 @@ class RescueWorldLLGPT(gym.Env):
                        self.old_state.pos[0]] in self.object_pref[square_val]
           and self.old_state.last_drop == rw4t_utils.RW4T_State.square.value):
         return self.diversity_reward
-    # If we just delivered a triangle, the agent is rewarded to pick up another
-    # triangle if another triangle is available.
-    if (self.rw4t_hl_actions == rw4t_utils.RW4T_HL_Actions
-        and self.prev_option == self.rw4t_hl_actions.deliver_triangle.value
-        and ((len(useful_objs[triangle_val]) > 0
-              and curr_o == self.rw4t_hl_actions.go_to_triangle.value))):
-      # If the agent is standing at a drop location for triangles and just
-      # dropped a triangle
-      if (triangle_val in self.object_pref
-          and self.map[self.old_state.pos[1],
-                       self.old_state.pos[0]] in self.object_pref[triangle_val]
-          and self.old_state.last_drop == rw4t_utils.RW4T_State.triangle.value):
-        return self.diversity_reward
+    # # If we just delivered a triangle, the agent is rewarded to pick up another
+    # # triangle if another triangle is available.
+    # if (self.prev_option == self.rw4t_hl_actions.deliver_triangle.value
+    #     and ((len(useful_objs[triangle_val]) > 0
+    #           and curr_o == self.rw4t_hl_actions.go_to_triangle.value))):
+    #   # If the agent is standing at a drop location for triangles and just
+    #   # dropped a triangle
+    #   if (triangle_val in self.object_pref
+    #       and self.map[self.old_state.pos[1],
+    #                    self.old_state.pos[0]] in self.object_pref[triangle_val]
+    #       and self.old_state.last_drop == rw4t_utils.RW4T_State.triangle.value):
+    #     return self.diversity_reward
     # No HL preference otherwise.
     return 0
 
@@ -846,8 +888,23 @@ class RescueWorldLLGPT(gym.Env):
   def get_low_level_pref(self, state, curr_o, curr_a):
     '''
     Get the reward associated with the low level preference function.
+
+    The current low-level pref is implemented as not going through danger zones
+    when agent is delivering an object.
     '''
-    # Check if there are execution preferences for the current option.
+    # When the agent is holding an object (no matter whether its option is
+    # delivery)
+    # In RW4T, the agent should only pick up an object if it wishes to
+    # deliver the object, so adding this check penalizes the agent when it is
+    # delivering an object but not using the corresponding option
+    state_dict = state.state_to_dict()
+    all_danger_zones = set([])
+    for zones in self.danger_pref.values():
+      all_danger_zones.update(zones)
+    if state_dict['holding'] != rw4t_utils.Holding_Obj.empty.value:
+      if self.map[self.agent_pos[1], self.agent_pos[0]] in all_danger_zones:
+        return self.danger_reward_per_entrance
+    # When the agent is performing a delivery option
     if curr_o in self.danger_pref:
       zones_to_avoid = self.danger_pref[curr_o]
       if self.map[self.agent_pos[1], self.agent_pos[0]] in zones_to_avoid:
@@ -891,6 +948,24 @@ class RescueWorldLLGPT(gym.Env):
           return self.pseudo_penalty
 
     return -1
+
+  def get_flatsa_pref(self, state, action):
+    '''
+    In the flat reward function, we penalize the agent for entering a danger
+    zone.
+
+    The high-level preference cannot be represeted as a flat reward and so is
+    not implemented in this function.
+    '''
+    state_dict = state.state_to_dict()
+    all_danger_zones = set([])
+    for zones in self.danger_pref.values():
+      all_danger_zones.update(zones)
+    if state_dict['holding'] != rw4t_utils.Holding_Obj.empty.value:
+      if self.map[self.agent_pos[1], self.agent_pos[0]] in all_danger_zones:
+        return self.danger_reward_per_entrance
+
+    return 0
 
   def check_done(self):
     '''
@@ -1074,15 +1149,18 @@ class RescueWorldLLGPT(gym.Env):
     Get all danger zone locations that should be avoided by the agent.
     '''
     all_zones = set([])
-    if utils.RW4T_State.yellow_zone.value in self.danger_pref:
+    all_zone_types = [
+        item for sublist in list(self.danger_pref.values()) for item in sublist
+    ]
+    if utils.RW4T_State.yellow_zone.value in all_zone_types:
       rows, cols = np.where(self.map == utils.RW4T_State.yellow_zone.value)
       all_zones.update(set(zip(cols, rows)))
 
-    if utils.RW4T_State.orange_zone.value in self.danger_pref:
+    if utils.RW4T_State.orange_zone.value in all_zone_types:
       rows, cols = np.where(self.map == utils.RW4T_State.orange_zone.value)
       all_zones.update(set(zip(cols, rows)))
 
-    if utils.RW4T_State.red_zone.value in self.danger_pref:
+    if utils.RW4T_State.red_zone.value in all_zone_types:
       rows, cols = np.where(self.map == utils.RW4T_State.red_zone.value)
       all_zones.update(set(zip(cols, rows)))
 
@@ -1094,6 +1172,15 @@ class RescueWorldLLGPT(gym.Env):
     danger zones and obstacles.
     '''
     all_avoid_locations = self.get_danger_locations()
+    all_avoid_locations.extend(self.get_obs_locations())
+    return all_avoid_locations
+
+  def get_relevant_avoid_locations(self, option):
+    all_avoid_locations = []
+    if option in self.pref_dict['zones']:
+      zones_to_avoid = self.pref_dict['zones'][option]
+      for zone in zones_to_avoid:
+        all_avoid_locations.extend(self.get_all_locations_by_type(zone))
     all_avoid_locations.extend(self.get_obs_locations())
     return all_avoid_locations
 
@@ -1114,6 +1201,9 @@ class RescueWorldLLGPT(gym.Env):
       f.close()
 
   def choose_rand_start_pos(self):
+    if self.valid_start_pos is not None:
+      return random.choice(self.valid_start_pos)
+
     start_pos = None
     while start_pos is None:
       x = random.randint(0, self.map_size - 1)
@@ -1160,7 +1250,7 @@ class RescueWorldLLGPT(gym.Env):
     '''
     potential_types = []
     if self.agent_holding != rw4t_utils.RW4T_State.empty.value:
-      # Find all potential goal types that satisfy the human's preference
+      # If the agent has picked up a supply
       if self.agent_holding not in self.object_pref:
         if np.any(self.map == utils.RW4T_State.school.value):
           potential_types.append(utils.RW4T_State.school.value)
@@ -1174,12 +1264,32 @@ class RescueWorldLLGPT(gym.Env):
               self.agent_holding][dest]:
             potential_types.append(dest)
     else:
-      # Find all potential object types that satisfy the human's preference
+      # Agent is not holding anything, so it should pick up a supply that is
+      # the same as the previously delivered type
       for obj in self.object_pref:
         for dest in self.object_pref[obj]:
           if self.object_pref[obj][dest] > self.dropped_objs[obj][dest]:
-            potential_types.append(obj)
-            continue
+            if (obj == rw4t_utils.RW4T_State.circle.value and self.prev_option
+                == self.rw4t_hl_actions_with_dummy.deliver_circle.value) or (
+                    obj == rw4t_utils.RW4T_State.square.value
+                    and self.prev_option
+                    == self.rw4t_hl_actions_with_dummy.deliver_square.value
+                ) or (
+                    obj == rw4t_utils.RW4T_State.triangle.value
+                    and self.prev_option
+                    == self.rw4t_hl_actions_with_dummy.deliver_triangle.value):
+              potential_types.append(obj)
+              continue
+
+      # No supply found to match previously delivered type (i.e. at the start
+      # of the environment or if all supplies of the type have been delivered)
+      if len(potential_types) == 0:
+        if np.any(self.map == utils.RW4T_State.circle.value):
+          potential_types.append(utils.RW4T_State.circle.value)
+        if np.any(self.map == utils.RW4T_State.square.value):
+          potential_types.append(utils.RW4T_State.square.value)
+        if np.any(self.map == utils.RW4T_State.triangle.value):
+          potential_types.append(utils.RW4T_State.triangle.value)
     if len(potential_types) == 0:
       potential_types.append(utils.RW4T_State.school.value)
       potential_types.append(utils.RW4T_State.hospital.value)
@@ -1196,7 +1306,19 @@ class RescueWorldLLGPT(gym.Env):
           shortest_dist = dist
           closest_goal = pair
           closest_goal_type = dest
-    hl_action = rw4t_utils.Location_2_HL_Action[closest_goal_type]
+    if closest_goal_type in rw4t_utils.Location_2_HL_Action:
+      # If location is an object location
+      hl_action = rw4t_utils.Location_2_HL_Action[closest_goal_type]
+    else:
+      # If location is a delivery location
+      if self.agent_holding == rw4t_utils.RW4T_State.circle.value:
+        hl_action = self.rw4t_hl_actions.deliver_circle.value
+      elif self.agent_holding == rw4t_utils.RW4T_State.square.value:
+        hl_action = self.rw4t_hl_actions.deliver_square.value
+      elif self.agent_holding == rw4t_utils.RW4T_State.triangle.value:
+        hl_action = self.rw4t_hl_actions.deliver_triangle.value
+      else:
+        raise NotImplementedError
     return hl_action, closest_goal
 
   def generate_ll_actions(self, hl_action, goal=None):
@@ -1238,12 +1360,15 @@ class RescueWorldLLGPT(gym.Env):
       else:
         goal = closest_goal
     # Generate a path to the goal
+    avoid_locations = self.get_relevant_avoid_locations(hl_action)
     all_shortest_paths = rw4t_utils.find_all_shortest_path_bfs(
         self.agent_pos,
         goal,
-        avoid_locations=self.get_all_avoid_locations(),
+        avoid_locations=avoid_locations,
         map_size=self.map_size)
-    path = random.choice(all_shortest_paths)
+    assert len(all_shortest_paths) >= 1
+    path = all_shortest_paths[0]
+    # path = random.choice(all_shortest_paths)
     assert path is not None
     # Generate a list of low level actions to go to that goal
     ll_actions = []
@@ -1372,6 +1497,11 @@ class RescueWorldLLGPT(gym.Env):
     reward, reward_dict = get_low_level_pref_gpt(state, option, action)
     return reward
 
+  def get_flat_sa_pref_gpt(self, state, action):
+    pass
+
+
+
 from typing import Dict, Tuple
 import math
 def get_low_level_pref_gpt(state: Dict, option: int, action: int) -> Tuple[float, Dict[str, float]]:
@@ -1379,42 +1509,30 @@ def get_low_level_pref_gpt(state: Dict, option: int, action: int) -> Tuple[float
     state: the current state of the environment.
     option: the option (subtask) selected by the agent in the current state.
     action: the action that the agent is about to perform in the current state.
+
+    User preference:
+    - The agent should avoid yellow danger zones when delivering an object.
     '''
-    # Extract necessary information from the state
-    obs = state['map']
-    pos = state['pos']
-    holding = state['holding']
+    
+    reward = 0.0
+    reward_components = {}
 
-    # Constants for zone types
-    YELLOW_ZONE = rw4t_utils.RW4T_State.yellow_zone.value
-    ORANGE_ZONE = rw4t_utils.RW4T_State.orange_zone.value
-    RED_ZONE = rw4t_utils.RW4T_State.red_zone.value
+    # Map and position details
+    map_layout = state['map']
+    agent_pos = state['pos']
+    current_cell = map_layout[agent_pos[1], agent_pos[0]]
 
-    # Identify if current option is a 'deliver' option
-    is_deliver_option = option in [
-        rw4t_utils.RW4T_HL_Actions_With_Dummy_EZ.deliver_circle.value,
-        rw4t_utils.RW4T_HL_Actions_With_Dummy_EZ.deliver_square.value
-    ]
+    # Check if the agent is in a yellow zone
+    in_yellow_zone = current_cell == rw4t_utils.RW4T_State.yellow_zone.value
 
-    # Initialize preference reward
-    pref_reward = 0.0
-    penalty = 0.0
+    # Check if the agent is delivering an object
+    if option in {rw4t_utils.RW4T_HL_Actions_EZ.deliver_circle.value,
+                  rw4t_utils.RW4T_HL_Actions_EZ.deliver_square.value}:
+        if in_yellow_zone:
+            # Penalize being in a yellow zone when delivering
+            reward -= 5.0
+            reward_components['yellow_zone_penalty'] = -5.0
+        else:
+            reward_components['yellow_zone_penalty'] = 0.0
 
-    # Penalize if the agent is in a danger zone while performing a 'deliver' option
-    if is_deliver_option:
-        current_zone = obs[pos[1], pos[0]]
-        if current_zone == YELLOW_ZONE:
-            penalty = -2.0
-        elif current_zone == ORANGE_ZONE:
-            penalty = -4.0
-        elif current_zone == RED_ZONE:
-            penalty = -6.0
-
-    pref_reward += penalty
-
-    # Compile the components of the reward
-    reward_components = {
-        'danger_zone_penalty': penalty
-    }
-
-    return pref_reward, reward_components
+    return reward, reward_components

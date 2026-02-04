@@ -32,8 +32,7 @@ class SemiThorPickPlaceEnv(gym.Env):
     self.base_env = env(hl_pref_r=hl_pref_r,
                         low_level=False,
                         seed=seed,
-                        render=render,
-                        pnp_game_params=pnp_game_params)
+                        render=render) # , pnp_game_params=pnp_game_params)
 
     # 2) Load the trained low-level policy
     self.one_network = one_network

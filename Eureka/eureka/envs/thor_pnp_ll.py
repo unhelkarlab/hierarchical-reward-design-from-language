@@ -4,6 +4,7 @@ import random
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
+import imageio.v2 as imageio
 from ai2thor.controller import Controller
 from ai2thor.platform import CloudRendering
 from typing import Dict, Any, Optional, Tuple
@@ -53,7 +54,8 @@ class ThorPickPlaceEnvLL(gym.Env):
       hl_pref_r=None,
       option: PnP_HL_Actions = None,
       seed: Optional[int] = None,
-      render: bool = True):
+      render: bool = True,
+      pnp_game_params: dict = {}):
     super().__init__()
     # Save config
     self.scene = scene
@@ -131,6 +133,23 @@ class ThorPickPlaceEnvLL(gym.Env):
     # High level action space: Options (pick up/drop specific items)
     # Option values
     self.option = option
+
+    # Recording inits
+    if 'record' in pnp_game_params and pnp_game_params['record']:
+      self.record_game = True
+      if 'record_path' in pnp_game_params:
+        self.record_path = pnp_game_params['record_path']
+      else:
+        self.record_path = f'pnp_{scene}.mp4'
+    else:
+      self.record_game = False
+
+    self._video_writer = None
+    self._record_fps = pnp_game_params.get('record_fps', 5) if isinstance(
+        pnp_game_params, dict) else 5
+    if self.record_game:
+      print('Starting video writer...')
+      self._start_video_writer(self.record_path, self._record_fps)
 
     # Initialize environment
     self._setup_env()
@@ -221,6 +240,8 @@ class ThorPickPlaceEnvLL(gym.Env):
 
     obs = self._get_obs()
     info = {}
+    if self.record_game:
+      self._append_frame()
     return obs, info
 
   def ll_reset(self, option, seed: Optional[int] = None) -> bool:
@@ -539,6 +560,8 @@ class ThorPickPlaceEnvLL(gym.Env):
 
     if self.need_render:
       time.sleep(0.2)
+    if self.record_game:
+      self._append_frame()
     return obs, (task_reward, pseudo_reward, ll_pref_reward,
                  hl_pref_reward), terminated, truncated, info
 
@@ -546,6 +569,9 @@ class ThorPickPlaceEnvLL(gym.Env):
     return self._get_obs()
 
   def close(self):
+    if self.record_game:
+      print('Closing video writer...')
+      self._close_video_writer()
     self.controller.stop()
 
   # ---------- Helpers ----------
@@ -1304,6 +1330,60 @@ class ThorPickPlaceEnvLL(gym.Env):
     #   print('Option: ', option)
     #   print('HL pref reward: ', hl_pref_reward)
     return hl_pref_reward
+
+  # ---------- Video Recording Helpers ----------
+  def _start_video_writer(self, path: str, fps: int = 5):
+    """
+    Open an ffmpeg-backed writer (via imageio) for mp4 output.
+    Safe to call multiple times; re-opens if needed.
+    """
+    # Close any existing writer first
+    if getattr(self, "_video_writer", None) is not None:
+      try:
+        self._video_writer.close()
+      except Exception:
+        pass
+      self._video_writer = None
+
+    try:
+      # imageio will use ffmpeg under the hood; ensure FFmpeg is available
+      self._video_writer = imageio.get_writer(
+          path,
+          fps=fps,
+          codec='libx264',  # H.264
+          quality=8,  # 0 (worst) .. 10 (best)
+          macro_block_size=None  # avoid resizing warnings
+      )
+    except Exception as e:
+      print(f"[WARN] Failed to start video writer at '{path}': {e}")
+      self._video_writer = None
+      self.record_game = False
+
+  def _append_frame(self):
+    """
+    Append the latest RGB frame from AI2-THOR to the video.
+    """
+    if not self.record_game or self._video_writer is None:
+      return
+    try:
+      # last_event.frame is an RGB uint8 (H,W,3)
+      frame = self.controller.last_event.frame
+      if frame is not None:
+        self._video_writer.append_data(frame)
+    except Exception as e:
+      print(f"[WARN] Failed to append frame: {e}")
+
+  def _close_video_writer(self):
+    """
+    Safely close the video writer.
+    """
+    if getattr(self, "_video_writer", None) is not None:
+      try:
+        self._video_writer.close()
+      except Exception as e:
+        print(f"[WARN] Failed to close video writer: {e}")
+      finally:
+        self._video_writer = None
 
   def get_high_level_pref_gpt(self, state, prev_option, option):
     pass

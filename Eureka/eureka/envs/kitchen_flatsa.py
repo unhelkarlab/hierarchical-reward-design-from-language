@@ -30,7 +30,7 @@ class MapSetting:
   num_agents: int = 1  # fixed
 
 
-class OvercookedSimple(OvercookedEnvironment):
+class KitchenFlatSA(OvercookedEnvironment):
   '''
   A simplified Overcooked domain where one agent only needs to make one soup.
   '''
@@ -508,7 +508,7 @@ class OvercookedSimple(OvercookedEnvironment):
     pass
 
 
-class OvercookedSimpleHL(OvercookedSimple):
+class EurekaOvercookedSimpleHL(KitchenFlatSA):
 
   def __init__(self,
                arglist,

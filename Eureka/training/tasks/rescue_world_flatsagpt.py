@@ -60,7 +60,7 @@ class RW4T_GameState:
     }
 
 
-class RescueWorldHLGPT(gym.Env):
+class RescueWorldFlatSAGPT(gym.Env):
 
   def __init__(self,
                map_name,
@@ -78,7 +78,7 @@ class RescueWorldHLGPT(gym.Env):
                write=False,
                fname='',
                render=False):
-    super(RescueWorldHLGPT, self).__init__()
+    super(RescueWorldFlatSAGPT, self).__init__()
     if seed is not None:
       random.seed(seed)
 
@@ -1490,71 +1490,59 @@ class RescueWorldHLGPT(gym.Env):
                 and option == self.rw4t_hl_actions.go_to_triangle.value))
 
   def get_high_level_pref_gpt(self, state, prev_option, option):
-    if not isinstance(state, dict): state = state.state_to_dict()
-    reward, reward_dict = get_high_level_pref_gpt(state, prev_option, option)
-    return reward
+    pass
 
   def get_low_level_pref_gpt(self, state, option, action):
     pass
 
   def get_flat_sa_pref_gpt(self, state, action):
-    pass
+    if not isinstance(state, dict): state = state.state_to_dict()
+    reward, reward_dict = get_user_pref_reward(state, action)
+    return reward
 
 
 
 from typing import Dict, Tuple
 import math
-def get_high_level_pref_gpt(state: Dict, prev_option: int, option: int) -> Tuple[float, Dict[str, float]]:
+def get_user_pref_reward(state: Dict, action: int) -> Tuple[float, Dict[str, float]]:
     '''
-    state: the current state of the environment.
-    prev_option: the last option (subtask) executed by the agent to reach the current state.
-    option: the option (subtask) the agent is about to perform in the current state.
-    '''
-    
-    # Extract relevant information from the state
-    map_state = state['map']
-    holding = state['holding']
+    Calculate the user preference reward for the current state and action.
 
-    # Determine the last delivered object type based on the previous option
-    # Assuming: deliver_circle = 1, deliver_square = 3 according to RW4T_HL_Actions_EZ
-    prev_delivered_object_type = None
-    if prev_option == 1:  # deliver_circle
-        prev_delivered_object_type = rw4t_utils.Holding_Obj.circle.value
-    elif prev_option == 3:  # deliver_square
-        prev_delivered_object_type = rw4t_utils.Holding_Obj.square.value
+    :param state: The state of the environment as a dictionary.
+    :param action: The action taken by the agent.
+    :return: A tuple consisting of the user preference reward and a
+             dictionary with the individual reward components.
+    '''
+    pos = state['pos']
+    holding = state['holding']
+    current_pos_state = state['map'][pos[1], pos[0]]
 
     # Initialize reward components
-    preference_reward = 0.0
-    same_type_pick = 0.0
-    different_type_pick = 0.0
-    
-    if prev_delivered_object_type is not None:
-        # Check if the current option is to pick up an object of the previously delivered type
-        if option == 0:  # go_to_circle
-            if prev_delivered_object_type == rw4t_utils.Holding_Obj.circle.value:
-                same_type_pick = 1.0
-            else:
-                different_type_pick = -1.0
-        elif option == 2:  # go_to_square
-            if prev_delivered_object_type == rw4t_utils.Holding_Obj.square.value:
-                same_type_pick = 1.0
-            else:
-                different_type_pick = -1.0
-    
-        # Check if any of the previously delivered type are still on the map
-        objects_of_prev_type_remaining = np.any(map_state == prev_delivered_object_type)
-        
-        if objects_of_prev_type_remaining:
-            if same_type_pick > 0:
-                preference_reward += same_type_pick
-            else:
-                preference_reward += different_type_pick
-        else:
-            # If no objects of the previous type are remaining, encourage picking any type
-            preference_reward += 0.5  # Neutral reward if no more of that type remain
-
-    return preference_reward, {
-        'preference_reward': preference_reward,
-        'same_type_pick': same_type_pick,
-        'different_type_pick': different_type_pick
+    reward = 0
+    reward_components = {
+        "match_previous_type": 0,
+        "avoid_yellow_zone_while_delivering": 0
     }
+
+    # Check user preference on object pickup (matching previous delivered type)
+    if action == rw4t_utils.RW4T_LL_Actions.pick.value and holding == rw4t_utils.Holding_Obj.empty.value:
+        # Determine the type of the object at the current position
+        if current_pos_state in [rw4t_utils.RW4T_State.circle.value, rw4t_utils.RW4T_State.square.value, rw4t_utils.RW4T_State.triangle.value]:
+            current_object_type = current_pos_state
+
+            # Check if the agent previously delivered this type
+            # For demonstration: assuming last_delivered_obj_type is a parameter in the state indicating the previously delivered type
+            # This detail would ideally be part of the agent's internal memory or state
+            last_delivered_obj_type = state.get('last_delivered_obj_type', None)
+
+            if last_delivered_obj_type is not None and current_object_type == last_delivered_obj_type:
+                reward_components["match_previous_type"] = 1
+                reward += 1
+
+    # Check user preference to avoid yellow zones while delivering
+    if holding != rw4t_utils.Holding_Obj.empty.value:
+        if current_pos_state == rw4t_utils.RW4T_State.yellow_zone.value:
+            reward_components["avoid_yellow_zone_while_delivering"] = -1
+            reward -= 1
+
+    return reward, reward_components

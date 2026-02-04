@@ -54,8 +54,7 @@ class ThorPickPlaceEnv(gym.Env):
       hl_pref_r=None,
       option: PnP_HL_Actions = None,
       seed: Optional[int] = None,
-      render: bool = True,
-      pnp_game_params: dict = {}):
+      render: bool = True, pnp_game_params: dict = {}):
     super().__init__()
     # Save config
     self.scene = scene

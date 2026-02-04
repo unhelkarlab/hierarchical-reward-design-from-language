@@ -132,7 +132,10 @@ def launch_rlg_hydra(cfg: DictConfig):
   elif cfg.task.env.level == 'low':
     script_name = 'run_ll.py'
   elif cfg.task.env.level == 'flatsa':
-    script_name = 'run_ll.py'
+    if cfg.task.env.env_type == 'pnp':
+      script_name = 'run_ll.py'
+    else:
+      script_name = 'run_flatsa.py'
   else:
     raise NotImplementedError
   # print(f'seed_idx: {cfg.seed_idx}')

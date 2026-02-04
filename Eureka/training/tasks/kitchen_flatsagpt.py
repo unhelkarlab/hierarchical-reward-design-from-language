@@ -30,7 +30,7 @@ class MapSetting:
   num_agents: int = 1  # fixed
 
 
-class OvercookedSimple(OvercookedEnvironment):
+class KitchenFlatSAGPT(OvercookedEnvironment):
   '''
   A simplified Overcooked domain where one agent only needs to make one soup.
   '''
@@ -505,10 +505,12 @@ class OvercookedSimple(OvercookedEnvironment):
     pass
 
   def get_flat_sa_pref_gpt(self, state, action):
-    pass
+    if not isinstance(state, dict): state = state.state_to_dict()
+    reward, reward_dict = get_flat_sa_pref_gpt(state, action)
+    return reward
 
 
-class OvercookedSimpleHL(OvercookedSimple):
+class EurekaOvercookedSimpleHL(KitchenFlatSAGPT):
 
   def __init__(self,
                arglist,
@@ -818,3 +820,49 @@ class OvercookedSimpleHL(OvercookedSimple):
       self.game.on_cleanup()
 
 
+
+from typing import Dict, Tuple
+import math
+def get_flat_sa_pref_gpt(state: Dict, action: int) -> Tuple[float, Dict[str, float]]:
+    '''
+    state: the current state of the environment.
+    action: the (low-level) action that the agent is about to perform in the current state.
+    '''
+    reward = 0.0
+    reward_components = {
+        "tomato_chopped": 0.0,
+        "onion_chopped": 0.0,
+        "lettuce_chopped": 0.0,
+        "excessive_chopping": 0.0
+    }
+
+    # Check for the existence of already chopped ingredients
+    chopped_tomato = (state['ChoppedTomato'] == 1).any()
+    chopped_onion = (state['ChoppedOnion'] == 1).any()
+    chopped_lettuce = (state['ChoppedLettuce'] == 1).any()
+    combined_salad = ((state['ChoppedTomato'] + state['ChoppedOnion'] + state['ChoppedLettuce']) >= 3).any()
+
+    # Ensure preferences are honored only when the necessary ingredient is not yet in a chopped state or combined salad exists
+    if not combined_salad:
+        if not chopped_tomato:
+            # Identify if the current action is chopping a tomato
+            if action == 0:  # Assuming 'Chop Tomato' corresponds to action 0
+                reward += 0.1
+                reward_components["tomato_chopped"] += 0.1
+        elif chopped_tomato and not chopped_onion:
+            # Identify if the current action is chopping an onion
+            if action == 2:  # Assuming 'Chop Onion' corresponds to action 2
+                reward += 0.1
+                reward_components["onion_chopped"] += 0.1
+        elif chopped_tomato and chopped_onion and not chopped_lettuce:
+            # Identify if the current action is chopping a lettuce
+            if action == 1:  # Assuming 'Chop Lettuce' corresponds to action 1
+                reward += 0.1
+                reward_components["lettuce_chopped"] += 0.1
+        else:
+            # If ingredients are already sufficiently chopped, discourage unnecessary chopping
+            if action in [0, 2, 1]:  # Assuming these actions correspond to chopping
+                reward -= 0.1
+                reward_components["excessive_chopping"] -= 0.1
+                
+    return reward, reward_components

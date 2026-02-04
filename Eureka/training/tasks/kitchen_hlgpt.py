@@ -37,12 +37,14 @@ class KitchenHLGPT(OvercookedEnvironment):
 
   def __init__(self,
                arglist,
+               hl_pref_r,
                salad=True,
                serve=True,
                ez=True,
                detailed_hl_pref=False,
                dish_type='David'):
     super().__init__(arglist)
+    self.hl_pref_r = hl_pref_r
 
     if salad:
       self.moves_to_ht = {
@@ -125,15 +127,32 @@ class KitchenHLGPT(OvercookedEnvironment):
   def step(self, action_dict, option, passed_time=1):
     hl_pref_reward = 0
     gt_hl_pref_reward = 0
-    if 'Eureka' in self.__class__.__name__:
-      hl_pref_reward += self.get_high_level_pref_gpt(self.state,
+    assert len(action_dict.keys()) == 1
+    assert len(self.__class__.__bases__) == 1
+    parent_class_name = self.__class__.__bases__[0].__name__
+    if 'HLGPT' in parent_class_name:
+      parsed_state_dict = self.get_plain_state(self.state)
+      hl_pref_reward += self.get_high_level_pref_gpt(parsed_state_dict,
                                                      self.prev_option, option)
       gt_hl_pref_reward += self.get_high_level_pref(self.state,
                                                     self.prev_option, option)
+    elif 'FlatSAGPT' in parent_class_name:
+      parsed_state_dict = self.get_plain_state(self.state)
+      hl_pref_reward += self.get_flat_sa_pref_gpt(
+          parsed_state_dict, self.get_int_action(action_dict['agent-1']))
+      gt_hl_pref_reward += self.get_high_level_pref(self.state,
+                                                    self.prev_option, option)
     else:
-      hl_pref_reward += self.get_high_level_pref(self.state, self.prev_option,
-                                                 option)
-      gt_hl_pref_reward += hl_pref_reward
+      if self.hl_pref_r:
+        hl_pref_reward += self.get_high_level_pref(self.state, self.prev_option,
+                                                   option)
+        gt_hl_pref_reward += hl_pref_reward
+      else:
+        parsed_state_dict = self.get_plain_state(self.state)
+        hl_pref_reward += self.get_flatsa_pref(
+            parsed_state_dict, self.get_int_action(action_dict['agent-1']))
+        gt_hl_pref_reward += self.get_high_level_pref(self.state,
+                                                      self.prev_option, option)
     state, reward, truncated, info = super().step(action_dict, passed_time)
     state = self.modify_state(state)
     reward = self.modify_task_reward(reward)
@@ -359,6 +378,49 @@ class KitchenHLGPT(OvercookedEnvironment):
 
     return reward
 
+  def get_flatsa_pref(self, state, action):
+    # Initialize preference reward and reward components
+    preference_reward = 0.0
+    reward_components = {
+        'chop_tomato_then_onion': 0.0,
+        'chop_onion_then_lettuce': 0.0,
+        'avoid_extra_chopping': 0.0
+    }
+
+    # Identify locations of relevant objects
+    chopping_tomato = state['ChoppingTomato'].nonzero()
+    chopping_onion = state['ChoppingOnion'].nonzero()
+    chopping_lettuce = state['ChoppingLettuce'].nonzero()
+
+    chopped_tomato = state['ChoppedTomato'].any()
+    chopped_onion = state['ChoppedOnion'].any()
+    chopped_lettuce = state['ChoppedLettuce'].any()
+
+    # Determine what the agent is currently chopping, if anything
+    chopping_t = len(chopping_tomato[0]) > 0
+    chopping_o = len(chopping_onion[0]) > 0
+    chopping_l = len(chopping_lettuce[0]) > 0
+
+    # Check task-specific user preference chopping sequence
+    if not chopped_tomato and chopping_t:
+      reward_components['chop_tomato_then_onion'] = 0.1
+
+    if chopped_tomato and not chopped_onion and chopping_o:
+      reward_components['chop_onion_then_lettuce'] = 0.1
+
+    if chopped_onion and not chopped_lettuce and chopping_l:
+      reward_components['chop_onion_then_lettuce'] += 0.1
+
+    # Avoid extra chopping
+    if chopped_tomato and chopped_onion and chopped_lettuce:
+      if chopping_t or chopping_o or chopping_l:
+        reward_components['avoid_extra_chopping'] = -0.1
+
+    # Sum up the reward components to form the preference reward
+    preference_reward = sum(reward_components.values())
+
+    return preference_reward
+
   def _get_relevant_moves(self):
     '''
     Create an options dictionary (with wait) without the irrelevant options
@@ -389,25 +451,82 @@ class KitchenHLGPT(OvercookedEnvironment):
         num_moves += 1
     return all_moves_dict_with_wait_ez
 
+  def get_plain_state(self, raw_info):
+    '''
+    The output of this function will be the input state in the generated reward
+    function.
+
+    The state is a dictionary that maps object names to their locations on the
+    map.
+
+    If the object 'obj' is at location (x, y), then state['obj'][y, x] == 1.
+    Otherwise, state['obj'][y, x] == 0.
+    '''
+    num_rows = self.world_size[1]
+    num_cols = self.world_size[0]
+    state_dict = {}
+
+    # Process Grid Squares Map
+    GRIDSQUARES = [
+        "Floor", "Counter", "Cutboard", "Bin", "Pot", "FreshTomatoTile",
+        "FreshOnionTile", "FreshLettuceTile", "PlateTile"
+    ]
+    gridsquares_map = raw_info['gridsquare']
+    for gridsquare_type in GRIDSQUARES:
+      grid_map = gridsquares_map[gridsquare_type].T
+      assert grid_map.shape == (num_rows, num_cols)
+      state_dict[gridsquare_type] = grid_map
+
+    # Process Object Map
+    OBJECTS = ['FreshTomato', 'FreshLettuce', 'FreshOnion'] + [
+        'ChoppingTomato', 'ChoppingOnion', 'ChoppingLettuce'
+    ] + ['ChoppedTomato', 'ChoppedOnion', 'ChoppedLettuce'] + ['Plate']
+    objects_map = raw_info['objects']
+    for obj_type in OBJECTS:
+      obj_map = objects_map[obj_type].T
+      assert obj_map.shape == (num_rows, num_cols)
+      state_dict[obj_type] = obj_map
+
+    # Process Agent Map
+    agent_map = raw_info['agent_map']['agent-1'].T
+    assert agent_map.shape == (num_rows, num_cols)
+    state_dict['agent'] = agent_map
+
+    return state_dict
+
+  def get_int_action(self, action_tuple):
+    action_dict = {0: (0, -1), 1: (0, 1), 2: (1, 0), 3: (-1, 0), 4: (0, 0)}
+    assert action_tuple in action_dict.values()
+    int_action = next((k for k, v in action_dict.items() if v == action_tuple),
+                      None)
+    return int_action
+
   def get_high_level_pref_gpt(self, state, prev_option, option):
     if not isinstance(state, dict): state = state.state_to_dict()
     reward, reward_dict = get_high_level_pref_gpt(state, prev_option, option)
     return reward
+
+  def get_flat_sa_pref_gpt(self, state, action):
+    pass
 
 
 class EurekaOvercookedSimpleHL(KitchenHLGPT):
 
   def __init__(self,
                arglist,
+               hl_pref_r,
                ez,
                masked,
                salad,
                serve,
                detailed_hl_pref,
+               convenience_features,
                smdp=False,
                seed=0,
-               render=False):
+               render=False,
+               oc_game_params=dict()):
     super().__init__(arglist,
+                     hl_pref_r,
                      salad=salad,
                      serve=serve,
                      detailed_hl_pref=detailed_hl_pref,
@@ -421,14 +540,20 @@ class EurekaOvercookedSimpleHL(KitchenHLGPT):
 
     # Define HL observation space.
     # Flattened map length:
-    map_len = 24 * 5 * 4
+    self.convenience_features = convenience_features
+    print(f'Using convenience features: {convenience_features}')
+    map_len = (10 + 24) * 5 * 4
     current_orders_len = 14
     current_holdings_len = 13
     # We'll have: map_len, current_orders, current_holdings, just_chopped,
     # ingre_chopped, option.
-    self.obs_len = map_len + current_holdings_len + len(Ingredients) + len(
-        Ingredients) - 1 + 2 * (len(SoupType) + len(SoupType) - 1) + len(
-            self.all_moves_dict_with_wait)
+    if self.convenience_features:
+      self.obs_len = map_len + current_holdings_len + len(Ingredients) + len(
+          Ingredients) - 1 + 2 * (len(SoupType) + len(SoupType) - 1) + len(
+              self.all_moves_dict_with_wait)
+    else:
+      self.obs_len = map_len + current_holdings_len + len(
+          self.all_moves_dict_with_wait)
     self.masked = masked
     if self.masked:
       self.obs_len += len(self.all_moves_dict)
@@ -438,6 +563,7 @@ class EurekaOvercookedSimpleHL(KitchenHLGPT):
                                             dtype=np.float32)
 
     # Render the env if needed
+    self.game_params = oc_game_params
     self.if_render = render
     self.game = None
     self.sleep_time = 0.1
@@ -447,7 +573,7 @@ class EurekaOvercookedSimpleHL(KitchenHLGPT):
     self.option_task = None
     self.num_ll_steps = 0
     if map_len / 24 <= 20:
-      self.max_steps_ll = 10
+      self.max_steps_ll = 12
     else:
       self.max_steps_ll = 30
     self.last_option_status = -5
@@ -469,16 +595,19 @@ class EurekaOvercookedSimpleHL(KitchenHLGPT):
     self.last_option_status = -5
     self.np_random = np.random.RandomState(seed)
     obs_dict, info = super().reset()
+    self.chop_sequence = []
     self.option_mask = np.zeros(len(self.all_moves_dict))
     obs_dict['option_mask'] = self.option_mask
     if self.if_render:
       # If we have yet to instantiate an instance of Game, do that.
       # Otherwise, call __init__ to reinitialize.
       # Not the best practice but needs to be done.
+      self.game_params['env'] = self
+      self.game_params['play'] = True
       if self.game is None:
-        self.game = Game(self, play=True)
+        self.game = Game(**self.game_params)
       else:
-        self.game.__init__(self, play=True)
+        self.game.__init__(**self.game_params)
       self.game.on_init()
       self.game.on_render()
     hl_obs = self._build_hl_observation(obs_dict)
@@ -527,11 +656,14 @@ class EurekaOvercookedSimpleHL(KitchenHLGPT):
     prev_option[self.prev_option] = 1.0
 
     # Concatenate all parts
-    obs = np.concatenate([
-        game_map, current_holdings, just_chopped, ingre_chopped, just_combined,
-        ingre_combined, just_plated, soup_plated, prev_option
-    ],
-                         axis=0)
+    if self.convenience_features:
+      obs = np.concatenate([
+          game_map, current_holdings, just_chopped, ingre_chopped,
+          just_combined, ingre_combined, just_plated, soup_plated, prev_option
+      ],
+                           axis=0)
+    else:
+      obs = np.concatenate([game_map, current_holdings, prev_option], axis=0)
     if self.masked:
       if np.all(obs_dict['option_mask'] == 0):
         mask = np.ones_like(obs_dict['option_mask'])
@@ -616,6 +748,8 @@ class EurekaOvercookedSimpleHL(KitchenHLGPT):
     reward = (0, 0)
     obs, reward, done, truncated, info = self.step_helper(
         action_dict, hl_action, reward)
+    if obs['just_chopped'] != Ingredients.empty.value:
+      self.chop_sequence.append(obs['just_chopped'])
     # Check if LL is done (LL can be done if either its status is success or
     # it has reached the step limit) to prepare the info dict
     # info = {}
@@ -639,6 +773,7 @@ class EurekaOvercookedSimpleHL(KitchenHLGPT):
           self.last_option_status = -5
     info['ll_done'] = ll_done
     info['ll_truncated'] = ll_truncated
+    info['chop_sequence'] = self.chop_sequence
     # print('ll done: ', ll_done)
     # print('ll truncated: ', ll_truncated)
     # Build HL observation
@@ -684,43 +819,52 @@ class EurekaOvercookedSimpleHL(KitchenHLGPT):
     if self.if_render:
       self.game.on_cleanup()
 
+
+
 from typing import Dict, Tuple
 import math
-def get_high_level_pref_gpt(state: Dict, prev_option: int, option: int) -> Tuple[float, Dict[str, float]]:
+def get_high_level_pref_gpt(state: dict, prev_option: int, option: int) -> Tuple[float, Dict[str, float]]:
     '''
     state: the current state of the environment.
     prev_option: the last option (subtask) executed by the agent to reach the current state.
-    option: the option (subtask) the agent is about to perform in the current state.
+    option: the option (subtask)) the agent is about to perform in the current state.
     '''
     
+    # Define option indices
+    CHOP_TOMATO = 0
+    CHOP_LETTUCE = 1
+    CHOP_ONION = 2
+    PREPARE_DAVID_INGREDIENTS = 3
+    PLATE_DAVID_SALAD = 4
+    
     reward = 0.0
-    reward_components = {
-        "tomato_to_onion": 0.0,
-        "onion_to_lettuce": 0.0
-    }
-
-    # Define the numerical identifiers for the options to allow comparisons
-    option_chop_tomato = 0  # 'Chop Tomato'
-    option_chop_onion = 2   # 'Chop Onion'
-    option_chop_lettuce = 1 # 'Chop Lettuce'
-
-    # Access the number of each ingredient chopped from the state
-    num_tomatoes_chopped = state['ingre_chopped'][Ingredients.tomato.value - 1]
-    num_onions_chopped = state['ingre_chopped'][Ingredients.onion.value - 1]
-    num_lettuce_chopped = state['ingre_chopped'][Ingredients.lettuce.value - 1]
-
-    if prev_option == option_chop_tomato and option == option_chop_onion:
-        # Check if the agent is moving from chopping tomato to chopping onion
-        # Only reward this transition once for each ingredient needed
-        if num_onions_chopped == 0:
-            reward += 0.5
-            reward_components["tomato_to_onion"] = 0.5
-
-    elif prev_option == option_chop_onion and option == option_chop_lettuce:
-        # Check if the agent is moving from chopping onion to chopping lettuce
-        # Only reward this transition once for each ingredient needed
-        if num_lettuce_chopped == 0:
-            reward += 0.5
-            reward_components["onion_to_lettuce"] = 0.5
-
+    reward_components = {}
+    
+    # Check the current state of the ingredients
+    has_chopped_tomato = (state['ChoppedTomato'] > 0).any()
+    has_chopped_onion = (state['ChoppedOnion'] > 0).any()
+    has_chopped_lettuce = (state['ChoppedLettuce'] > 0).any()
+    
+    # Preference: Chop onion after chopping tomato, and chop lettuce after chopping onion
+    if option == CHOP_ONION and has_chopped_tomato and not has_chopped_onion:
+        reward += 0.1
+        reward_components['chop_onion_after_tomato'] = 0.1
+    elif option == CHOP_LETTUCE and has_chopped_onion and not has_chopped_lettuce:
+        reward += 0.1
+        reward_components['chop_lettuce_after_onion'] = 0.1
+    else:
+        reward_components['chop_onion_after_tomato'] = 0.0
+        reward_components['chop_lettuce_after_onion'] = 0.0
+    
+    # Discourage unnecessary chopping if ingredients are already chopped
+    if option == CHOP_TOMATO and has_chopped_tomato:
+        reward -= 0.1
+        reward_components['unnecessary_chop_tomato'] = -0.1
+    if option == CHOP_ONION and has_chopped_onion:
+        reward -= 0.1
+        reward_components['unnecessary_chop_onion'] = -0.1
+    if option == CHOP_LETTUCE and has_chopped_lettuce:
+        reward -= 0.1
+        reward_components['unnecessary_chop_lettuce'] = -0.1
+    
     return reward, reward_components

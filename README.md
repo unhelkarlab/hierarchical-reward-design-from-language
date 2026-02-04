@@ -16,7 +16,7 @@ pip install -e Hierarchical-Language-Agent/agent
 pip install -e Hierarchical-Language-Agent/testbed-cooking
 ```
 
-Our LLM-based reward generation uses the OpenAI API. In order to run the related experiments, set your API key using the command below:
+Our LLM-based reward generation framework uses the OpenAI API. In order to run the related experiments, set your API key using the command below:
 
 ```
 export OPENAI_API_KEY="YOUR_API_KEY_HERE"
@@ -26,21 +26,45 @@ export OPENAI_API_KEY="YOUR_API_KEY_HERE"
 
 To replicate the experiments shown in Table 1 of the paper, we split up hierarchical policy training into three categories: LLM-generated hierarchical preference rewards (our framework),  LLM-generated flat preference rewards (baseline), and task-only reward (baseline).
 
-**Using LLM-Generated Hierarchical Preference Rewards**
+**Using LLM-Generated Preference Rewards**
 
-To train a low-level policy:
+To train a policy using the LLM-based reward generation pipeline:
 
-`TODO`
+(run from the `Eureka/eureka` folder)
+```
+python run_eureka.py \
+    --exp_type [POLICY_LEVEL] \
+    --env [ENV] \
+    --seed_idx 0
+```
 
-To train a high-level policy:
+To train a low-level policy with low-level generated rewards:
+- Set `--exp_type` to `low_level`
+- Set `--env` to either `rw4t` (Rescue World) or `pnp` (iTHOR)
 
-`TODO`
+To train a high-level policy with high-level generated rewards:
+- Set `--exp_type` to `high_level`
+- Set `--env` to either `rw4t` (Rescue World), `oc` (Kitchen), or `pnp` (iTHOR)
 
-**Using LLM-Generated Flat Preference Rewards**
+To train a hierarchical policy with flat state-action generated rewards:
+- Set `--exp_type` to `flat`
+- Set `--env` to either `rw4t` (Rescue World), `oc` (Kitchen), or `pnp` (iTHOR)
+- **NOTE**: If `--env` is `pnp`, this command will only train the low-level policy. To train the high-level policy, run `python train/run_hl_flatsa_eureka_parallel_nocheck.py --env_name pnp --seed_idx 0 --model_type VariableStepDQN` from the `HierRL` folder (you will not need to run postprocessing as described below for this)
 
-To train a full hierarchical policy:
+**IMPORTANT**: After training a low-level policy, you will need to postprocess the training runs to filter out for generated rewards that are syntactically correct before training a high-level policy. You can do so with the following command (run from the `HierRL` folder)
 
-`TODO`
+```
+python eval/eval_ll.py \
+    --env_name [ENV] \
+    --class_name [CLASS_NAME] \
+    --pref_type low \
+    --model_type PPO \
+    --seed_idx 0
+```
+
+If you are postprocessing Rescue World policies, set `--env` to `rw4t` and `--class_name` to `RescueWorldLLGPT`
+
+If you are postprocessing iTHOR policies, set `--env` to `pnp` and `--class_name` to `ThorPickPlaceEnvLLGPT`
 
 **Using Task-Only Rewards**
 
@@ -56,7 +80,7 @@ python train/run_ll.py \
     --option_to_use [OPTION]
 ```
 
-where `[ENV]` is one of `[rw4t, oc, pnp]` (corresponding to the Rescue World, Kitchen, and iThor domains respectively) and `option_to_use` indicates the specific option to train (you will need to train a policy for each of the options separately).
+where `[ENV]` is one of `[rw4t, pnp]` (corresponding to the Rescue World and iThor domains respectively, note that Kitchen is limited to high-level training) and `option_to_use` indicates the specific option to train (you will need to train a policy for each of the options separately).
 
 To train a high-level policy:
 
@@ -69,7 +93,7 @@ python train/run_hl.py \
     --seed_idx 0 \
 ```
 
-where `[ENV]` is defined similar to above. Make sure that `--seed_idx` matches an index that was used to train a set of low-level policies, as those policies will be used to train the high-level policy. 
+where `[ENV]` is defined similar to above. For the Rescue World and iThor environments, make sure that `--seed_idx` matches an index that was used to train a set of low-level policies, as those policies will be used to train the high-level policy. 
 
 ---
 
@@ -89,7 +113,7 @@ python train/run_ll.py \
     --option_to_use [OPTION]
 ```
 
-where `[ENV]` is one of `[rw4t, oc, pnp]` (corresponding to the Rescue World, Kitchen, and iThor domains respectively) and `option_to_use` indicates the specific option to train (you will need to train a policy for each of the options separately).
+where `[ENV]` is one of `[rw4t, pnp]` (corresponding to the Rescue World and iThor domains respectively, note that Kitchen is limited to high-level training) and `option_to_use` indicates the specific option to train (you will need to train a policy for each of the options separately).
 
 To train a high-level policy:
 
@@ -102,7 +126,7 @@ python train/run_hl.py \
     --seed_idx 0
 ```
 
-where `[ENV]` is defined similar to above. Make sure that `--seed_idx` matches an index that was used to train a set of low-level policies, as those policies will be used to train the high-level policy. 
+where `[ENV]` is defined similar to above. For the Rescue World and iThor environments, make sure that `--seed_idx` matches an index that was used to train a set of low-level policies, as those policies will be used to train the high-level policy. 
 
 **Using Expert-Defined Flat Rewards**
 
@@ -118,7 +142,7 @@ python train/run_ll.py \
     --option_to_use [OPTION]
 ```
 
-where `[ENV]` is one of `[rw4t, oc, pnp]` (corresponding to the Rescue World, Kitchen, and iThor domains respectively) and `option_to_use` indicates the specific option to train (you will need to train a policy for each of the options separately).
+where `[ENV]` is one of `[rw4t, pnp]` (corresponding to the Rescue World and iThor domains respectively, note that Kitchen is limited to high-level training) and `option_to_use` indicates the specific option to train (you will need to train a policy for each of the options separately).
 
 To train a high-level policy:
 
@@ -131,7 +155,7 @@ python train/run_hl.py \
     --seed_idx 0
 ```
 
-where `[ENV]` is defined similar to above. Make sure that `--seed_idx` matches an index that was used to train a set of low-level policies, as those policies will be used to train the high-level policy.
+where `[ENV]` is defined similar to above. For the Rescue World and iThor environments, make sure that `--seed_idx` matches an index that was used to train a set of low-level policies, as those policies will be used to train the high-level policy.
 
 ### Evaluating Policies
 

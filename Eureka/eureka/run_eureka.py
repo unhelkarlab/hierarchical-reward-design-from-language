@@ -29,14 +29,13 @@ env_types = {
 run_args = {
   'env': env_types[args.env][args.exp_type],
   'sample': 1,          # How many rewards to generate
-  'num_options': 4,     # How many options to train per generated reward
-  'blocking': True,     # If False, train policies in parallel (if sample > 1)
+  'num_options': -1,     # How many options to train per generated reward
+  'blocking': False,     # If False, train policies in parallel (if sample > 1)
 }
 
-# We can run high-level policies in parallel since we aren't training policies for each option per reward
-if args.exp_type == 'high_level':
-  run_args['sample'] = 8
-  run_args['blocking'] = False
+if args.env == "pnp" and args.exp_type != "high":
+  run_args['blocking'] = True
+  run_args['num_options'] = 4
 
 for index in seed_indices:
   print(f"Running with seed_idx={index}...")
