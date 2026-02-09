@@ -446,7 +446,8 @@ def eval_hls_eureka(env_name,
           all_rewards.append(all_rewards_avg[0] + all_rewards_avg[2] +
                              hl_pref_reward)
         else:
-          raise NotImplementedError
+          continue
+          # raise NotImplementedError
       # Bookkeeping for the best model
       if env_name in ['oc']:
         # Task reward + HL pref
@@ -673,24 +674,29 @@ if __name__ == "__main__":
     eval_hls_controller_save_folder = Path(
         hl_config["controller_save_path"]).parent
   print('Controller save folder: ', eval_hls_controller_save_folder)
-  # eval_hls(env_name=env_name,
-  #          pref_type=pref_type,
-  #          env_facotry=hl_config['env_factory'],
-  #          env_kwargs=hl_config['env_kwargs'],
-  #          controller_save_folder=eval_hls_controller_save_folder,
-  #          model_type=model_type,
-  #          params=hl_config['params'],
-  #          render=render)
-  eval_hls_eureka(env_name=env_name,
-                  pref_type=pref_type,
-                  env_facotry=hl_config['env_factory'],
-                  env_kwargs=hl_config['env_kwargs'],
-                  controller_save_folder=eval_hls_controller_save_folder,
-                  model_type=model_type,
-                  params=hl_config['params'],
-                  render=render,
-                  sample=8,
-                  total=24)
+
+  if class_name == '':
+    eval_hls(env_name=env_name,
+            pref_type=pref_type,
+            env_facotry=hl_config['env_factory'],
+            env_kwargs=hl_config['env_kwargs'],
+            controller_save_folder=eval_hls_controller_save_folder,
+            model_type=model_type,
+            params=hl_config['params'],
+            render=render)
+  elif 'GPT' in class_name:
+    eval_hls_eureka(env_name=env_name,
+                    pref_type=pref_type,
+                    env_facotry=hl_config['env_factory'],
+                    env_kwargs=hl_config['env_kwargs'],
+                    controller_save_folder=eval_hls_controller_save_folder,
+                    model_type=model_type,
+                    params=hl_config['params'],
+                    render=render,
+                    sample=8,
+                    total=24)
+  else:
+    raise NotImplementedError
 
   # Get the performance of an rw4t non-eureka model given initial positions
   # Usage example:
