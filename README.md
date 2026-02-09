@@ -151,12 +151,62 @@ To train a high-level policy:
 python train/run_hl.py \
     --env_name [ENV] \
     --pref_type flatsa \
-    --model_type VariableStepDQN \
+    --model_type [MODEL_TYPE] \
     --seed_idx 0
 ```
 
-where `[ENV]` is defined similar to above. For the Rescue World and iThor environments, make sure that `--seed_idx` matches an index that was used to train a set of low-level policies, as those policies will be used to train the high-level policy.
+where `[ENV]` is defined similar to above, and `[MODEL_TYPE]` is either `VariableStepDQN` for Rescue World and iTHOR, or `MaskableDQN` for Kitchen. For the Rescue World and iThor environments, make sure that `--seed_idx` matches an index that was used to train a set of low-level policies, as those policies will be used to train the high-level policy.
 
 ### Evaluating Policies
 
-TODO
+To evaluate trained policies from LLM-generated rewards:
+
+(run from the `HierRL` folder)
+```
+python eval/eval_hl.py \
+    --env_name [ENV] \
+    --pref_type [PREF] \
+    --model_type [MODEL TYPE] \
+    --class_name [CLASS NAME]
+```
+
+where `--pref_type` can be chosen from `[high, flatsa]` depending on if you want to evaluate models trained with hierarchical or flat preference rewards.
+
+If you are evaluating on the Rescue World environment:
+- Set `--env_name` to `rw4t`
+- Set `--model_type` to `VariableStepDQN`
+- Set `--class_name` to `ThorPickPlaceEnvHLGPT` if `--pref_type` is `high`, and `ThorPickPlaceEnvFlatSAGPT` if `--pref_type` is `flatsa`
+
+If you are evaluating on the Kitchen environment:
+- Set `--env_name` to `oc`
+- Set `--model_type` to `MaskableDQN`
+- Set `--class_name` to `KitchenHLGPT` if `--pref_type` is `high`, and `KitchenFlatSAGPT` if `--pref_type` is `flatsa`
+
+If you are evaluating on the iTHOR environment:
+- Set `--env_name` to `pnp`
+- Set `--model_type` to `VariableStepDQN`
+- Set `--class_name` to `ThorPickPlaceEnvHLGPT` if `--pref_type` is `high`, and `ThorPickPlaceEnvFlatSAGPT` if `--pref_type` is `flatsa`
+
+To evaluate trained policies using either task-only reward or expert-provided flat/hierarchical rewards:
+
+(run from the `HierRL` folder)
+```
+python eval/eval_hl.py \
+    --env_name [ENV] \
+    --pref_type [PREF] \
+    --model_type [MODEL TYPE]
+```
+
+where `--pref_type` can be chosen from `[task, high, flatsa]` depending on if you want to evaluate models trained with task-only, hierarchical preference rewards, or flat preference rewards.
+
+If you are evaluating on the Rescue World environment:
+- Set `--env_name` to `rw4t`
+- Set `--model_type` to `VariableStepDQN`
+
+If you are evaluating on the Kitchen environment:
+- Set `--env_name` to `oc`
+- Set `--model_type` to `MaskableDQN`
+
+If you are evaluating on the iTHOR environment:
+- Set `--env_name` to `pnp`
+- Set `--model_type` to `VariableStepDQN`
